@@ -197,7 +197,9 @@ final class DialView: NSView {
         surface.setFill()
         outer.fill()
         NSGraphicsContext.restoreGraphicsState()
-        edge.setStroke()
+        // Hovering: the keys are the dial's, said by the rim, in a lighter
+        // accent than the active app's segment.
+        (armed ? accent.withAlphaComponent(0.5) : edge).setStroke()
         outer.lineWidth = armed ? 2 : 1
         outer.stroke()
 
@@ -258,9 +260,8 @@ final class DialView: NSView {
         }
         fill.setFill()
         button.fill()
-        // Hovering: the keys are the dial's, said by the button's edge.
-        (armed ? accent : edge).setStroke()
-        button.lineWidth = armed ? 2 : 1
+        edge.setStroke()
+        button.lineWidth = 1
         button.stroke()
         let symbol = phase == .thinking ? "ellipsis" : "mic.fill"
         if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?

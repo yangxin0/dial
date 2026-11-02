@@ -848,7 +848,9 @@ struct Dial {
         }
         SolidBrush fill(surface);
         g.FillEllipse(&fill, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
-        Pen outline(edge, armed ? 2.0f : 1.0f);
+        // Hovering: the keys are the dial's, said by the rim, in a lighter
+        // accent than the active app's segment.
+        Pen outline(armed ? Color(128, accent.GetR(), accent.GetG(), accent.GetB()) : edge, armed ? 2.0f : 1.0f);
         g.DrawEllipse(&outline, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
 
         // The slots.
@@ -899,8 +901,7 @@ struct Dial {
                                                                          : dark ? Color(255, 62, 62, 68) : Color(255, 255, 255, 255);
         SolidBrush button(buttonFill);
         g.FillEllipse(&button, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
-        // Hovering: the keys are the dial's, said by the button's edge.
-        Pen buttonEdge(armed ? accent : edge, armed ? 2.0f : 1.0f);
+        Pen buttonEdge(edge, 1.0f);
         g.DrawEllipse(&buttonEdge, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
         // A microphone, drawn: a capsule, a cradle, a stem.
         Color glyph = phase == Idle ? label : Color(255, 255, 255, 255);
