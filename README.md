@@ -60,6 +60,8 @@ On Windows itself, build the dial with CMake and Visual Studio or MinGW (`window
 2. On **Jev**, paste a [TypeSafe](https://typesafe.ai) API key and press **Test**. This is optional: the rules decide without it. **Try a sentence** shows what the dial would do with what you type.
 3. Open **Dial**. It sits at the bottom right; drag it anywhere. macOS asks for the **Microphone** on the first recording, and for **Accessibility** at launch (System Settings ▸ Privacy & Security ▸ Accessibility): the keys, scrolling and typing need it.
 
+If Accessibility shows as allowed in System Settings but Dial still says it isn't: the entry belongs to an earlier build. Without the local signing identity every rebuild is a new app to macOS, so remove Dial from the list with − and add `dist/Dial.app` again with +, and run `make signing-identity` once so it doesn't recur. Settings' checklist shows what Dial itself reports, so it tells you when the grant has taken.
+
 The config is `~/.config/dial/config.json` (`%AppData%\dial\config.json` on Windows), readable by you only; the learned ring is `ring.json` beside it. dial-core reads the config afresh for every recording, so a change in Settings applies at once.
 
 ## Use

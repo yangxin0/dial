@@ -58,7 +58,7 @@ async function refreshStatus() {
   } else {
     perms.className = "warn";
     const missing = [];
-    if (!d.accessibility) missing.push("Accessibility (System Settings ▸ Privacy & Security ▸ Accessibility ▸ Dial)");
+    if (!d.accessibility) missing.push("Accessibility (System Settings ▸ Privacy & Security ▸ Accessibility ▸ Dial). If Dial is already on there, remove it with − and add it again: a rebuilt ad-hoc build is a new app to macOS. Run make signing-identity once so the grant survives rebuilds
     if (!d.microphone) missing.push("the Microphone (asked on the first recording)");
     sub.textContent = "Still needed: " + missing.join(" and ") + ".";
   }

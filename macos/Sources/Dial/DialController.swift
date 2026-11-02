@@ -87,7 +87,7 @@ final class DialController {
             sendGrants()
             return
         }
-        show(hint: "Allow Dial in System Settings ▸ Privacy & Security ▸ Accessibility to use the keys.", error: true)
+        show(hint: "Allow Dial under Privacy & Security ▸ Accessibility. Already on there? Remove it and add it again.", error: true)
         if trustTimer == nil {
             trustTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
                 self?.armKeys(prompt: false)
@@ -342,6 +342,7 @@ final class DialController {
         menu.addItem(withTitle: "Listen", action: #selector(menuListen), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Show Dial", action: #selector(menuShow), keyEquivalent: "").target = self
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Grant Accessibility…", action: #selector(menuAccessibility), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(menuSettings), keyEquivalent: ",").target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit Dial", action: #selector(menuQuit), keyEquivalent: "q").target = self
@@ -350,6 +351,20 @@ final class DialController {
     }
 
     @objc private func menuListen() { toggleListening() }
+
+    /// Asks again, and opens the pane: a rebuilt ad-hoc build is a new
+    /// app to macOS, and its old entry there no longer counts.
+    @objc private func menuAccessibility() {
+        if Input.trusted(prompt: true) {
+            show(hint: "Accessibility is allowed.")
+            armKeys(prompt: false)
+            return
+        }
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+        show(hint: "If Dial is already on the list, remove it with − and add dist/Dial.app again.", error: true)
+    }
     @objc private func menuShow() { panel.show() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
 
