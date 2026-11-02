@@ -129,7 +129,7 @@ final class DialView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
-        if isOurs(event) { return }
+        if isOurs(event) || Input.sessionActive { return }
         armed = true
         lastPointer = screenPoint(event)
         noteHome(event)
@@ -137,7 +137,9 @@ final class DialView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        if isOurs(event) { return }
+        // While a scroll session hides the cursor, its hops are not the
+        // pointer leaving.
+        if isOurs(event) || Input.sessionActive { return }
         armed = false
         hover = .none
         // Input.home is kept: a drag that runs off the dial still scrolls,
@@ -176,7 +178,7 @@ final class DialView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        if isOurs(event) { return }
+        if isOurs(event) || Input.sessionActive { return }
         noteHome(event)
         hover = zone(at: convert(event.locationInWindow, from: nil))
     }
@@ -271,18 +273,37 @@ final class DialView: NSView {
 
     // MARK: - Mouse
 
-    private func angle(of point: NSPoint) -> CGFloat {
-        atan2(point.y - center.y, point.x - center.x)
+    /// Where the pointer is during a drag, in screen coordinates with the
+    /// origin at the top left, followed by the mouse's own deltas: a
+    /// scroll hops the cursor away and event positions lie meanwhile.
+    private var virtualPointer: CGPoint?
+    private var dragStart: CGPoint?
+
+    /// The dial's centre on screen, origin at the top left.
+    private var centerOnScreen: CGPoint? {
+        guard let window else { return nil }
+        let p = window.convertPoint(toScreen: convert(center, to: nil))
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: p.x, y: height - p.y)
+    }
+
+    /// The angle of a screen point about the dial's centre, counterclockwise
+    /// from the right, as on the view.
+    private func angleOnScreen(_ p: CGPoint) -> CGFloat {
+        guard let c = centerOnScreen else { return 0 }
+        return atan2(c.y - p.y, p.x - c.x)
     }
 
     override func mouseDown(with event: NSEvent) {
-        lastPointer = screenPoint(event)
-        noteHome(event)
+        guard let p = screenPoint(event) else { return }
+        lastPointer = p
+        virtualPointer = p
+        dragStart = p
+        Input.home = p
         mouseDownAt = event.locationInWindow
         dragging = false
-        let point = convert(event.locationInWindow, from: nil)
-        dragZone = zone(at: point)
-        lastAngle = angle(of: point)
+        dragZone = zone(at: convert(event.locationInWindow, from: nil))
+        lastAngle = angleOnScreen(p)
         turn = 0
         if dragZone == .ring {
             spinTimer?.invalidate()
@@ -291,23 +312,30 @@ final class DialView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        // The cursor's hop and return after a scroll are the dial's own doing.
         if isOurs(event) { return }
-        noteHome(event)
-        guard let start = mouseDownAt else { return }
+        guard mouseDownAt != nil, var v = virtualPointer, let start = dragStart else { return }
+        // Physical motion only: a hop is a jump in position, never a delta
+        // this large.
+        let dx = event.deltaX, dy = event.deltaY
+        if abs(dx) > 120 || abs(dy) > 120 { return }
+        v.x += dx
+        v.y += dy
+        virtualPointer = v
+        Input.home = v
         if !dragging {
-            guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
+            guard hypot(v.x - start.x, v.y - start.y) > 4 else { return }
             dragging = true
             Log.write("drag began in \(dragZone)")
             if dragZone != .ring {
                 window?.performDrag(with: event)
                 return
             }
+            Input.holdScrollSession = true
         }
         guard dragZone == .ring else { return }
         // The ring follows the pointer round, and every 15° of turn scrolls
         // the app in front: clockwise down, as a wheel rolled forward does.
-        let now = angle(of: convert(event.locationInWindow, from: nil))
+        let now = angleOnScreen(v)
         var delta = now - lastAngle
         if delta > .pi { delta -= 2 * .pi }
         if delta < -.pi { delta += 2 * .pi }
@@ -326,10 +354,17 @@ final class DialView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { mouseDownAt = nil }
+        defer {
+            mouseDownAt = nil
+            virtualPointer = nil
+            dragStart = nil
+        }
         if dragging {
             if dragZone == .ring {
                 dragging = false
+                Input.holdScrollSession = false
+                Input.endScrollSession()
+                if let v = virtualPointer { lastPointer = v }
                 settle()
             }
             return
@@ -347,7 +382,7 @@ final class DialView: NSView {
             Log.write("own scroll came back to the dial; dropped")
             return
         }
-        noteHome(event)
+        if !Input.sessionActive { noteHome(event) }
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         wheelX += event.scrollingDeltaX * scale
         wheelY += event.scrollingDeltaY * scale

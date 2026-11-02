@@ -65,34 +65,78 @@ enum Input {
     /// the hop, not the pointer.
     static var lastTarget: CGPoint?
 
+    // MARK: - Scroll sessions
+    //
+    // Measured on 2026-11-02: a wheel event posted to a process is never
+    // delivered to a view; one posted into the system (HID or session tap)
+    // is delivered to the window at its location, and moves the cursor
+    // there; a mouse move posted after it to bring the cursor back is not
+    // honoured while the button is held; decoupling the mouse from the
+    // cursor stops delivery altogether; a warp is exact; a background
+    // process may hide the cursor. So a scroll gesture is a session: the
+    // cursor is hidden while it lasts, the wheels hop it to the window in
+    // front unseen, and when the gesture ends the cursor is warped back to
+    // where the pointer is and shown again. During a ring drag the pointer
+    // is followed by the mouse's own deltas, which the hops don't touch.
+
+    private(set) static var sessionActive = false
+    /// A ring drag holds the session open until it lets go; otherwise it
+    /// ends a moment after the last scroll.
+    static var holdScrollSession = false
+    private static var sessionIdle: Timer?
+    private static var sessionWatchdog: Timer?
+
+    private static func beginScrollSession() {
+        guard !sessionActive else { return }
+        sessionActive = true
+        CGDisplayHideCursor(CGMainDisplayID())
+        Log.write("scroll session: cursor hidden at \(home.map { "\(Int($0.x)),\(Int($0.y))" } ?? "?")")
+    }
+
+    /// Ends the session: the cursor comes back where the pointer is, and
+    /// shows again.
+    static func endScrollSession() {
+        guard sessionActive else { return }
+        sessionActive = false
+        sessionIdle?.invalidate()
+        sessionIdle = nil
+        sessionWatchdog?.invalidate()
+        sessionWatchdog = nil
+        let back = home ?? cursor
+        CGWarpMouseCursorPosition(back)
+        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
+        CGDisplayShowCursor(CGMainDisplayID())
+        Log.write("scroll session over, cursor back to \(Int(back.x)),\(Int(back.y))")
+    }
+
+    private static func touchSession() {
+        sessionIdle?.invalidate()
+        sessionIdle = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { _ in
+            if !holdScrollSession { endScrollSession() }
+        }
+        sessionWatchdog?.invalidate()
+        sessionWatchdog = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+            holdScrollSession = false
+            endScrollSession()
+        }
+    }
+
     /// Scrolls the app in front by `lines`: up when positive.
-    ///
-    /// A wheel event posted to a process is never delivered to a view, and
-    /// one posted into the system goes to the window at its location, and
-    /// moves the cursor there. So the wheel goes into the system aimed at
-    /// the window in front, and a mouse move back to where the cursor was
-    /// follows it in the same queue: the window scrolls, the cursor never
-    /// visibly leaves the dial. Measured against a test window and Chrome.
     static func scroll(lines: Int32) {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                   wheel1: lines, wheel2: 0, wheel3: 0) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-        let back = home ?? cursor
         guard let window = frontWindow() else {
             event.post(tap: .cghidEventTap)
             Log.write("scroll \(lines) → under the cursor (no window in front)")
             return
         }
+        beginScrollSession()
         event.location = target(in: window)
         lastTarget = event.location
         event.post(tap: .cghidEventTap)
-        let held = NSEvent.pressedMouseButtons & 1 != 0
-        if let move = CGEvent(mouseEventSource: nil, mouseType: held ? .leftMouseDragged : .mouseMoved,
-                              mouseCursorPosition: back, mouseButton: .left) {
-            move.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-            move.post(tap: .cghidEventTap)
-        }
-        Log.write("scroll \(lines) → «\(window.name)» at \(Int(event.location.x)),\(Int(event.location.y)), cursor back to \(Int(back.x)),\(Int(back.y))")
+        touchSession()
+        Log.write("scroll \(lines) → «\(window.name)» at \(Int(event.location.x)),\(Int(event.location.y))")
     }
 
     /// Where in the window to aim: its centre, unless the dial sits there,
