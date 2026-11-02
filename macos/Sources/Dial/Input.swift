@@ -61,6 +61,10 @@ enum Input {
     /// already reflects the hop to the window.
     static var home: CGPoint?
 
+    /// Where the last scroll was aimed: a mouse event that lands there is
+    /// the hop, not the pointer.
+    static var lastTarget: CGPoint?
+
     /// Scrolls the app in front by `lines`: up when positive.
     ///
     /// A wheel event posted to a process is never delivered to a view, and
@@ -80,6 +84,7 @@ enum Input {
             return
         }
         event.location = target(in: window)
+        lastTarget = event.location
         event.post(tap: .cghidEventTap)
         let held = NSEvent.pressedMouseButtons & 1 != 0
         if let move = CGEvent(mouseEventSource: nil, mouseType: held ? .leftMouseDragged : .mouseMoved,

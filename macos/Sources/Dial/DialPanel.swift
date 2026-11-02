@@ -131,6 +131,7 @@ final class DialView: NSView {
     override func mouseEntered(with event: NSEvent) {
         if isOurs(event) { return }
         armed = true
+        lastPointer = screenPoint(event)
         noteHome(event)
         hover = zone(at: convert(event.locationInWindow, from: nil))
     }
@@ -143,17 +144,35 @@ final class DialView: NSView {
         // and its own events keep the spot fresh.
     }
 
+    private var lastPointer: CGPoint?
+
+    /// The event's place on screen, origin at the top left.
+    private func screenPoint(_ event: NSEvent) -> CGPoint? {
+        guard let window else { return nil }
+        let p = window.convertPoint(toScreen: event.locationInWindow)
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: p.x, y: height - p.y)
+    }
+
+    /// The dial's own synthetic events, and the system's reaction to a
+    /// scroll's hop: an event at the scroll's target, or one that jumped
+    /// far from where the pointer was a moment ago. The system delivers a
+    /// drag at the hop's position during a ring drag, and it carries no
+    /// tag, so geometry is what tells it apart.
     private func isOurs(_ event: NSEvent) -> Bool {
-        event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Input.scrollTag
+        if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Input.scrollTag { return true }
+        guard let p = screenPoint(event) else { return false }
+        if let t = Input.lastTarget, hypot(p.x - t.x, p.y - t.y) < 6 { return true }
+        if let last = lastPointer, hypot(p.x - last.x, p.y - last.y) > 160 { return true }
+        return false
     }
 
     /// Remembers where the pointer is over the dial, for the cursor to
     /// come back to after a scroll.
     private func noteHome(_ event: NSEvent) {
-        guard let window, !isOurs(event) else { return }
-        let p = window.convertPoint(toScreen: event.locationInWindow)
-        let height = NSScreen.screens.first?.frame.height ?? 0
-        Input.home = CGPoint(x: p.x, y: height - p.y)
+        guard !isOurs(event), let p = screenPoint(event) else { return }
+        Input.home = p
+        lastPointer = p
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -257,6 +276,7 @@ final class DialView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        lastPointer = screenPoint(event)
         noteHome(event)
         mouseDownAt = event.locationInWindow
         dragging = false
@@ -271,7 +291,7 @@ final class DialView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        // The cursor's return after a scroll is the dial's own doing.
+        // The cursor's hop and return after a scroll are the dial's own doing.
         if isOurs(event) { return }
         noteHome(event)
         guard let start = mouseDownAt else { return }
