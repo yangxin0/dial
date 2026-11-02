@@ -14,6 +14,10 @@ similar marker or trailer.
 - `make test` runs `go vet`, the Go tests and the Swift unit tests;
   `make macos settings` builds the two app bundles into `dist/`;
   `make windows` cross-compiles the Windows dial with mingw-w64.
+- `make test` also loads the Settings pages in a real browser, against the real
+  API: the Go build embeds them without reading them, so a broken script builds
+  fine. After changing `settings/assets`, also open the real app: `make run`
+  rebuilds both apps.
 - `make test-scroll` drags the real ring of a fresh build over real apps,
   and takes over the pointer for about a minute, so CI can't run it. Run it
   before saying a change to the pointer, the ring or scrolling works. Exit 2

@@ -51,7 +51,10 @@ jobs:
       - name: Toolchain
         run: swift --version && go version
 
+      # The Settings pages load in a real browser here, so a missing one fails.
       - name: Test
+        env:
+          DIAL_REQUIRE_BROWSER: "1"
         run: make test
 
       - name: Bundle
