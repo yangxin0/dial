@@ -111,15 +111,17 @@ final class DialView: NSView {
 
     // MARK: - Geometry
 
+    /// Slots sit in the middle of the band the eye sees: between the
+    /// button's edge and the rim.
     private func slotCenter(_ index: Int, of count: Int) -> NSPoint {
         let angle = CGFloat.pi / 2 - CGFloat(index) * 2 * .pi / CGFloat(count)
-        let radius = (Self.outerRadius + Self.innerRadius) / 2
+        let radius = (Self.outerRadius + Self.buttonRadius) / 2
         return NSPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
     }
 
     private func slot(at point: NSPoint) -> Int? {
         let d = hypot(point.x - center.x, point.y - center.y)
-        guard d >= Self.innerRadius, d <= Self.outerRadius, !ring.isEmpty else { return nil }
+        guard d > Self.buttonRadius, d <= Self.outerRadius, !ring.isEmpty else { return nil }
         var angle = atan2(point.y - center.y, point.x - center.x)
         var turn = (CGFloat.pi / 2 - angle) / (2 * .pi)  // clockwise from the top, in turns
         while turn < 0 { turn += 1 }

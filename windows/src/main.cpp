@@ -769,9 +769,11 @@ struct Dial {
 
     // MARK: Geometry
 
+    // Slots sit in the middle of the band the eye sees: between the
+    // button's edge and the rim.
     PointF slotCenter(int index, int count) const {
         float angle = (float)M_PI / 2 - (float)index * 2 * (float)M_PI / (float)count;
-        float radius = (kOuter + kInner) / 2;
+        float radius = (kOuter + kButton) / 2;
         POINT c = center();
         return PointF(c.x + radius * cosf(angle), c.y - radius * sinf(angle));
     }
@@ -780,7 +782,7 @@ struct Dial {
         POINT c = center();
         float dx = (float)(p.x - c.x), dy = (float)(c.y - p.y);
         float d = sqrtf(dx * dx + dy * dy);
-        if (d < kInner || d > kOuter || ring.empty()) return -1;
+        if (d <= kButton || d > kOuter || ring.empty()) return -1;
         float angle = atan2f(dy, dx);
         float turn = ((float)M_PI / 2 - angle) / (2 * (float)M_PI);
         while (turn < 0) turn += 1;
