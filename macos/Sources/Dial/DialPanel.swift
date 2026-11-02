@@ -139,7 +139,8 @@ final class DialView: NSView {
         if isOurs(event) { return }
         armed = false
         hover = .none
-        Input.home = nil
+        // Input.home is kept: a drag that runs off the dial still scrolls,
+        // and its own events keep the spot fresh.
     }
 
     private func isOurs(_ event: NSEvent) -> Bool {
