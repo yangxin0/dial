@@ -11,10 +11,15 @@ enum Input {
         return AXIsProcessTrustedWithOptions(options)
     }
 
-    /// The centre of the frontmost app's frontmost window, in screen
-    /// coordinates with the origin at the top left, where a scroll is
-    /// delivered.
-    static func frontmostWindowCenter() -> CGPoint? {
+    /// The frontmost app's frontmost window: its number, its centre in
+    /// screen coordinates with the origin at the top left, and its name.
+    struct FrontWindow {
+        var id: CGWindowID
+        var center: CGPoint
+        var name: String
+    }
+
+    static func frontWindow() -> FrontWindow? {
         guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
         let pid = app.processIdentifier
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
@@ -22,13 +27,17 @@ enum Input {
         for window in list {
             guard let owner = window[kCGWindowOwnerPID as String] as? pid_t, owner == pid,
                   let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
+                  let number = window[kCGWindowNumber as String] as? CGWindowID,
                   let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
                   let bounds = CGRect(dictionaryRepresentation: boundsDict), bounds.width > 50, bounds.height > 50
             else { continue }
-            return CGPoint(x: bounds.midX, y: bounds.midY)
+            let name = window[kCGWindowName as String] as? String ?? ""
+            return FrontWindow(id: number, center: CGPoint(x: bounds.midX, y: bounds.midY), name: name)
         }
         return nil
     }
+
+    static func frontmostWindowCenter() -> CGPoint? { frontWindow()?.center }
 
     /// Marks the dial's own scroll events, so one that comes back to the
     /// dial is known and dropped.
@@ -42,10 +51,15 @@ enum Input {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                   wheel1: lines, wheel2: 0, wheel3: 0) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-        if let app = NSWorkspace.shared.frontmostApplication, let center = frontmostWindowCenter() {
-            event.location = center
+        if let app = NSWorkspace.shared.frontmostApplication, let window = frontWindow() {
+            // The window the event is for: an app routes a mouse event by
+            // the window number it carries, and one posted to a process
+            // carries none unless it is set here.
+            event.location = window.center
+            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.id))
+            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.id))
             event.postToPid(app.processIdentifier)
-            Log.write("scroll \(lines) → \(app.localizedName ?? "?") (\(app.processIdentifier)) at \(Int(center.x)),\(Int(center.y))")
+            Log.write("scroll \(lines) → \(app.localizedName ?? "?") window \(window.id) «\(window.name)» at \(Int(window.center.x)),\(Int(window.center.y))")
         } else {
             event.post(tap: .cghidEventTap)
             Log.write("scroll \(lines) → system (no window in front)")
