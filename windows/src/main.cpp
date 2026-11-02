@@ -559,6 +559,8 @@ struct Dial {
     std::wstring transcript, hint;
     bool hintIsError = false;
     bool armed = false;
+    // Which part the pointer is over: 0 none, 1 the ring, 2 the button.
+    int hoverZone = 0;
     bool tracking = false;
     bool coreListening = false;
     bool micRunning = false;
@@ -796,6 +798,14 @@ struct Dial {
         return sqrtf(dx * dx + dy * dy) <= kButton;
     }
 
+    int zoneAt(POINT p) const {
+        POINT c = center();
+        float d = sqrtf((float)((p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y)));
+        if (d <= kButton) return 2;
+        if (d <= kOuter) return 1;
+        return 0;
+    }
+
     // MARK: Drawing, into a layered window
 
     void redraw() {
@@ -848,9 +858,10 @@ struct Dial {
         }
         SolidBrush fill(surface);
         g.FillEllipse(&fill, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
-        // Hovering: the keys are the dial's, said by the rim, in a lighter
-        // accent than the active app's segment.
-        Pen outline(armed ? Color(128, accent.GetR(), accent.GetG(), accent.GetB()) : edge, armed ? 2.0f : 1.0f);
+        // The pointer over the ring lights the rim, in a lighter accent
+        // than the active app's segment.
+        bool overRing = hoverZone == 1;
+        Pen outline(overRing ? Color(128, accent.GetR(), accent.GetG(), accent.GetB()) : edge, overRing ? 2.0f : 1.0f);
         g.DrawEllipse(&outline, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
 
         // The slots.
@@ -901,7 +912,8 @@ struct Dial {
                                                                          : dark ? Color(255, 62, 62, 68) : Color(255, 255, 255, 255);
         SolidBrush button(buttonFill);
         g.FillEllipse(&button, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
-        Pen buttonEdge(edge, 1.0f);
+        // The pointer over the button lights its edge.
+        Pen buttonEdge(hoverZone == 2 ? accent : edge, hoverZone == 2 ? 2.0f : 1.0f);
         g.DrawEllipse(&buttonEdge, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
         // A microphone, drawn: a capsule, a cradle, a stem.
         Color glyph = phase == Idle ? label : Color(255, 255, 255, 255);
@@ -1024,7 +1036,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 TrackMouseEvent(&t);
                 d->tracking = true;
                 d->armed = true;
-                d->redraw();
+            }
+            if (d) {
+                int zone = d->zoneAt({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)});
+                if (zone != d->hoverZone) { d->hoverZone = zone; d->redraw(); }
             }
             if (d && d->pressed && !d->dragging) {
                 POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
@@ -1038,7 +1053,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             }
             return 0;
         case WM_MOUSELEAVE:
-            if (d) { d->tracking = false; d->armed = false; d->redraw(); }
+            if (d) { d->tracking = false; d->armed = false; d->hoverZone = 0; d->redraw(); }
             return 0;
         case WM_LBUTTONDOWN:
             if (d) {

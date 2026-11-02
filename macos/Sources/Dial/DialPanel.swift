@@ -72,6 +72,11 @@ final class DialView: NSView {
     var hintIsError = false { didSet { needsDisplay = true } }
     /// The pointer is over the dial: the keys are the dial's.
     private(set) var armed = false { didSet { needsDisplay = true } }
+    /// Which part the pointer is over, lit so the eye follows it.
+    enum HoverZone { case none, ring, button }
+    private(set) var hover = HoverZone.none {
+        didSet { if hover != oldValue { needsDisplay = true } }
+    }
 
     private var pulseTimer: Timer?
     private var pulsePhase: CGFloat = 0
@@ -88,12 +93,30 @@ final class DialView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
                                        owner: self, userInfo: nil))
     }
 
-    override func mouseEntered(with event: NSEvent) { armed = true }
-    override func mouseExited(with event: NSEvent) { armed = false }
+    override func mouseEntered(with event: NSEvent) {
+        armed = true
+        hover = zone(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        armed = false
+        hover = .none
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        hover = zone(at: convert(event.locationInWindow, from: nil))
+    }
+
+    private func zone(at point: NSPoint) -> HoverZone {
+        let d = hypot(point.x - center.x, point.y - center.y)
+        if d <= Self.buttonRadius { return .button }
+        if d <= Self.outerRadius { return .ring }
+        return .none
+    }
 
     private func pulse(_ on: Bool) {
         if on, pulseTimer == nil {
@@ -197,10 +220,10 @@ final class DialView: NSView {
         surface.setFill()
         outer.fill()
         NSGraphicsContext.restoreGraphicsState()
-        // Hovering: the keys are the dial's, said by the rim, in a lighter
-        // accent than the active app's segment.
-        (armed ? accent.withAlphaComponent(0.5) : edge).setStroke()
-        outer.lineWidth = armed ? 2 : 1
+        // The pointer over the ring lights the rim, in a lighter accent
+        // than the active app's segment.
+        (hover == .ring ? accent.withAlphaComponent(0.5) : edge).setStroke()
+        outer.lineWidth = hover == .ring ? 2 : 1
         outer.stroke()
 
         // The slots; the active app's is marked by a lit segment of the rim.
@@ -260,8 +283,9 @@ final class DialView: NSView {
         }
         fill.setFill()
         button.fill()
-        edge.setStroke()
-        button.lineWidth = 1
+        // The pointer over the button lights its edge.
+        (hover == .button ? accent : edge).setStroke()
+        button.lineWidth = hover == .button ? 2 : 1
         button.stroke()
         let symbol = phase == .thinking ? "ellipsis" : "mic.fill"
         if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
