@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dial Settings</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <nav class="seg" id="nav" aria-label="Pages">
+    <button data-view="setup" class="on">Setup</button>
+    <button data-view="voice">Voice</button>
+    <button data-view="jev">Jev</button>
+    <button data-view="dial">Dial</button>
+    <button data-view="about">About</button>
+  </nav>
+</header>
+
+<main>
+  <section class="view on" id="setup">
+    <h1>Get the dial ready</h1>
+    <p class="lede">The dial listens when you click it, runs what you say as a command or types it, and turns an app ring with the arrow keys.</p>
+    <ul class="card checklist">
+      <li id="chk-core">
+        <span class="mark"></span>
+        <div class="text"><b>dial-core is running</b><span class="sub">The dial app starts it. Open Dial and this turns green.</span></div>
+      </li>
+      <li id="chk-voice">
+        <span class="mark"></span>
+        <div class="text"><b>Speech engine set up</b><span class="sub">豆包流式语音识别, with your Volcengine key.</span></div>
+        <button class="pill" data-go="voice">Set up</button>
+      </li>
+      <li id="chk-jev">
+        <span class="mark"></span>
+        <div class="text"><b>Jev set up</b><span class="sub">Tells a command from dictation. Optional: a few plain rules decide without it.</span></div>
+        <button class="pill" data-go="jev">Set up</button>
+      </li>
+      <li id="chk-permissions" class="mac-only">
+        <span class="mark"></span>
+        <div class="text"><b>Permissions</b><span class="sub">Dial needs Accessibility (keys, scrolling, typing) and the Microphone. macOS asks on first use.</span></div>
+        <button class="pill" data-open="accessibility">Accessibility</button>
+        <button class="pill" data-open="microphone">Microphone</button>
+      </li>
+    </ul>
+    <div class="card tips">
+      <p><b>Click the centre</b> to listen, click again to stop. <b>Hover</b> the dial and use <b>← →</b> for apps, <b>↑ ↓</b> to scroll, <b>Space</b> to listen, <b>Esc</b> to cancel.</p>
+      <p><b>Say</b> “switch to Safari”, “open Slack”, “scroll down”, “go to the top”, “close the window” — or anything else to type it.</p>
+    </div>
+  </section>
+
+  <section class="view" id="voice">
+    <h1>Voice</h1>
+    <p class="lede">The dial streams your voice to 豆包流式语音识别 (Volcengine). Paste the API key from the new console, or the App ID and Access Token from the old one.</p>
+    <div class="card form" id="engine">
+      <label class="row"><span class="label">Name</span><input data-field="name" type="text" spellcheck="false" autocomplete="off"></label>
+      <label class="row"><span class="label">API key</span>
+        <span class="field"><input data-field="apiKey" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
+      <label class="row"><span class="label">App ID</span><input data-field="appId" type="text" spellcheck="false" autocomplete="off"></label>
+      <label class="row"><span class="label">Access token</span>
+        <span class="field"><input data-field="accessToken" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
+      <label class="row"><span class="label">Resource</span><input data-field="resourceId" type="text" placeholder="volc.seedasr.sauc.duration" spellcheck="false" autocomplete="off"></label>
+      <div class="row"><span class="label"></span>
+        <div class="field"><button class="primary" id="voiceTest">Test</button><span class="result" id="voiceResult"></span></div></div>
+    </div>
+    <h2>Hotwords</h2>
+    <p class="lede">Words the engine should favor, one per line: names it keeps mishearing. The open apps' names are sent along automatically.</p>
+    <div class="card form">
+      <textarea id="hotwords" rows="5" spellcheck="false"></textarea>
+    </div>
+  </section>
+
+  <section class="view" id="jev">
+    <h1>Jev</h1>
+    <p class="lede">Jev (TypeSafe's System One) reads what you said and answers three questions at once: command or dictation, which action, which app. Without a key, a few plain rules in English and Chinese decide instead.</p>
+    <div class="card form" id="jevForm">
+      <label class="row"><span class="label">API key</span>
+        <span class="field"><input data-field="apiKey" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
+      <label class="row"><span class="label">Endpoint</span><input data-field="baseURL" type="url" placeholder="https://api.typesafe.ai/v1" spellcheck="false" autocomplete="off"></label>
+      <label class="row"><span class="label">Model</span><input data-field="model" type="text" placeholder="jev-latest" spellcheck="false" autocomplete="off"></label>
+      <div class="row"><span class="label"></span>
+        <div class="field"><button class="primary" id="jevTest">Test</button><span class="result" id="jevResult"></span></div></div>
+    </div>
+    <h2>Try a sentence</h2>
+    <p class="lede">What the dial would do with it, against a sample app list (Finder, Safari, Slack, Visual Studio Code, Terminal).</p>
+    <div class="card form">
+      <div class="row"><span class="label">Say</span>
+        <span class="field"><input id="tryText" type="text" placeholder="switch to safari" spellcheck="false" autocomplete="off"><button class="pill" id="tryButton">Try</button></span></div>
+      <pre class="code" id="tryResult"></pre>
+    </div>
+  </section>
+
+  <section class="view" id="dial">
+    <h1>Dial</h1>
+    <h2>Deciding</h2>
+    <div class="card form">
+      <label class="row"><span class="label">Command threshold</span>
+        <span class="field"><input id="commandThreshold" type="range" min="0.3" max="0.95" step="0.05"><span class="value" id="commandThresholdValue"></span></span></label>
+      <p class="help">How sure Jev must be that you gave a command before the dial runs one instead of typing your words. Higher types more, lower acts more.</p>
+      <label class="row"><span class="label">App threshold</span>
+        <span class="field"><input id="appThreshold" type="range" min="0.2" max="0.95" step="0.05"><span class="value" id="appThresholdValue"></span></span></label>
+      <p class="help">How sure Jev must be of the app you named. Below it, the dial matches the name itself.</p>
+    </div>
+    <h2>Ring</h2>
+    <div class="card form">
+      <label class="row"><span class="label">Slots</span>
+        <span class="field"><input id="ringSize" type="range" min="3" max="8" step="1"><span class="value" id="ringSizeValue"></span></span></label>
+      <label class="row"><span class="label">Memory</span>
+        <span class="field"><input id="halfLife" type="range" min="1" max="60" step="1"><span class="value" id="halfLifeValue"></span></span></label>
+      <p class="help">Each pick counts one; a count halves every this many days, so an app you stopped using drifts off the ring.</p>
+    </div>
+    <h2>Learned</h2>
+    <div class="card">
+      <table class="learned" id="learned"><tbody></tbody></table>
+      <div class="add"><button class="pill" id="ringReset">Forget all</button></div>
+    </div>
+  </section>
+
+  <section class="view" id="about">
+    <h1>Dial</h1>
+    <p class="lede">Version <span id="version"></span>. A virtual Surface Dial: voice in, commands or text out, an app ring under the arrow keys.</p>
+    <div class="card tips">
+      <p><b>Config file</b> <span id="configPath" class="mono"></span> <button class="pill" data-open="config">Open</button></p>
+      <p><b>Source</b> <button class="pill" data-open="repository">GitHub</button></p>
+    </div>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

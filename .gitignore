@@ -1,0 +1,5 @@
+.build/
+dist/
+macos/.build/
+*.tmp
+.DS_Store

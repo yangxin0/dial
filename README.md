@@ -1,0 +1,97 @@
+# Dial
+
+A virtual [Surface Dial](https://en.wikipedia.org/wiki/Surface_Dial) for macOS and Windows: a small floating dial on your screen that **listens when you click it**, runs what you said as a command or **types it** into the app in front, and turns an **app ring** with the arrow keys.
+
+```
+   ┌─────────────────────────┐
+   │   ○ Safari   ○ Slack    │   ← → turn the ring: switch apps
+   │ ○ Finder   ●   ○ Code   │   ↑ ↓ scroll the app in front
+   │   ○ Xcode    ○ Mail     │   click the centre: listen
+   │  "switch to safari"     │   say a command, or anything to type
+   └─────────────────────────┘
+```
+
+Say **“switch to Safari”**, **“open Slack”**, **“scroll down”**, **“go to the top”**, **“close the window”** (English or Chinese: 切换到 Safari、打开 Slack、向下滚动、回到顶部、关闭窗口). Anything that isn't a command is typed where your cursor is.
+
+The ring is **learned**: the apps you pick most, through the dial or by voice, sit first; a pick counts one and counts halve every two weeks, so an app you stopped using drifts off.
+
+## How it works
+
+```
+dial/
+  core/        Go, shared: 豆包 streaming ASR, Jev (TypeSafe System One), the decision, the learned ring, config
+  cmd/         dial-core (the local server the dials talk to) · dial-cli (try the pieces from a terminal)
+  settings/    Go + Wails v3: Dial Settings, one window of plain HTML pages
+  macos/       Swift/AppKit: the dial window, the microphone, the keys, app switching, scrolling, typing
+  windows/     C++/Win32: the same, as a layered window with a keyboard hook, WASAPI, SendInput
+```
+
+The native dial owns the screen, the microphone and the keyboard. It starts **dial-core** (bundled next to it) and talks to it over TCP on the loopback interface, one JSON object per line (`core/protocol`). The core streams the audio to **豆包流式语音识别** (Volcengine), takes the final text, and asks **Jev** three questions in one request: *command or dictation?*, *which action?*, *which app, out of the ones that are open?* The answers come back as probabilities; a command above the threshold runs, anything else is typed. Without a Jev key, a small grammar in English and Chinese decides instead, and it also steps in when Jev doesn't answer.
+
+Nothing but the audio and the transcript leaves your computer: the audio goes to Volcengine, the transcript and the names of your open apps go to TypeSafe.
+
+## Build
+
+You need Go 1.25+ (the Makefile fetches the toolchain `go.mod` names with `GOTOOLCHAIN=auto`), and on macOS Xcode or its command-line tools. The Settings app links WebKit through cgo.
+
+```sh
+make test        # the Go core
+make macos       # dist/Dial.app, with dial-core inside
+make settings    # dist/Dial Settings.app
+make install     # both into /Applications
+make run         # build and open the dial
+```
+
+Dial.app is signed ad hoc unless you run `make signing-identity` once: that adds a self-signed "Dial Local Signing" certificate to your login keychain. macOS ties the Accessibility and Microphone grants to the signature, and an ad-hoc signature changes with every rebuild, so the grants have to be given again each time without it.
+
+For Windows, from a Mac or Linux with `mingw-w64` installed (`brew install mingw-w64`):
+
+```sh
+make windows     # dist/windows/dial.exe, dial-core.exe, dial-cli.exe, dial-settings.exe
+```
+
+On Windows itself, build the dial with CMake and Visual Studio or MinGW (`windows/CMakeLists.txt`) and the Go binaries with `go build ./cmd/... ./settings`. Put them in one folder: `dial.exe` starts `dial-core.exe` from its own folder and opens `dial-settings.exe` from the menu.
+
+> The Windows dial compiles cleanly with mingw-w64 but has not yet run on a Windows machine; the macOS dial is the one that has been exercised. Reports welcome.
+
+## Set up
+
+1. Open **Dial Settings**. On **Voice**, paste your Volcengine key (the new console's API key, or the old console's App ID and Access Token) and press **Test**.
+2. On **Jev**, paste a [TypeSafe](https://typesafe.ai) API key and press **Test**. This is optional: the rules decide without it. **Try a sentence** shows what the dial would do with what you type.
+3. Open **Dial**. It sits at the bottom right; drag it anywhere. macOS asks for the **Microphone** on the first recording, and for **Accessibility** at launch (System Settings ▸ Privacy & Security ▸ Accessibility): the keys, scrolling and typing need it.
+
+The config is `~/.config/dial/config.json` (`%AppData%\dial\config.json` on Windows), readable by you only; the learned ring is `ring.json` beside it. dial-core reads the config afresh for every recording, so a change in Settings applies at once.
+
+## Use
+
+| Do | Result |
+|---|---|
+| Click the centre | Start listening; click again, or pause, to stop |
+| Hover the dial, then **← →** | Turn the ring: bring the previous or next app to the front |
+| Hover, **↑ ↓** | Scroll the app in front |
+| Hover, **Space** / **Esc** | Listen / cancel |
+| Wheel over the dial | Vertical scrolls the app in front; horizontal turns the ring |
+| Click an app on the ring | Bring it to the front |
+| Drag | Move the dial |
+| Right-click (Windows) or the menu-bar icon (macOS) | Listen, Settings, Quit |
+
+The keys are the dial's only while the pointer is over it, so they stay your apps' keys otherwise.
+
+What you can say, in English or Chinese, is in `core/dispatch`: switch to / open an app, scroll up / down, top / bottom, close the window. Everything else is dictation and gets typed as heard.
+
+## From a terminal
+
+```sh
+.build/dial-cli test                                   # the speech engine and Jev credentials
+.build/dial-cli decide "切换到 Slack" --apps Finder,Safari,Slack
+.build/dial-cli asr recording.pcm                      # 16 kHz 16-bit mono PCM
+.build/dial-cli ring                                   # the learned ring
+```
+
+## Protocol
+
+Dial → core: `hello`, `apps` (the app list, whenever it changes), `start`, `audio` (base64 PCM, 200 ms a packet), `stop`, `cancel`, `switched` (the user turned the ring to an app). Core → dial: `hello` (what is set up), `ring` (ids in order), `state` (idle / listening / thinking), `heard` (text so far), `result` (intent, action, app, or text to type), `error`. See `core/protocol/protocol.go`.
+
+## Credits
+
+The 豆包 streaming client and the microphone capture come from [Fluent](https://github.com/yangxin0/fluent); the Settings app is built the way [magpie](https://github.com/yetone/magpie) builds its own.

@@ -1,0 +1,12 @@
+cmake_minimum_required(VERSION 3.16)
+project(dial LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_executable(dial WIN32 src/main.cpp)
+target_compile_definitions(dial PRIVATE UNICODE _UNICODE _USE_MATH_DEFINES)
+target_link_libraries(dial PRIVATE ws2_32 gdiplus ole32 shell32 user32 gdi32 dwmapi version uuid advapi32)
+if(MINGW)
+    target_compile_options(dial PRIVATE -municode)
+    target_link_options(dial PRIVATE -municode -static)
+endif()

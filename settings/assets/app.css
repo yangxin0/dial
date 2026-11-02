@@ -1,0 +1,81 @@
+/* Dial Settings, after magpie and Fluent: one quiet surface, cards, a
+   centred tab switch, system colours that follow light and dark. */
+:root {
+  --bg: #f4f4f6; --card: #ffffff; --pill: #f1f1f4; --pill-hover: #e9e9ee;
+  --seg-track: #e6e6eb; --seg-thumb: #ffffff;
+  --seg-edge: 0 1px 2px rgba(0,0,0,.14), 0 0 0 .5px rgba(0,0,0,.08);
+  --line: #e3e3e8; --fg: #1c1c21; --fg-2: #4b4b53; --muted: #85858d; --faint: #b9b9c2;
+  --accent: #4f46e5; --accent-fg: #ffffff;
+  --green: #189a58; --red: #d64545; --amber: #b45309;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --code: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1a1e; --card: #232327; --pill: #2d2d33; --pill-hover: #36363d;
+    --seg-track: rgba(255,255,255,.05); --seg-thumb: rgba(255,255,255,.15);
+    --seg-edge: inset 0 .5px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.3);
+    --line: #333339; --fg: #ededf1; --fg-2: #b9b9c1; --muted: #8b8b94; --faint: #56565f;
+    --accent: #a5b4fc; --accent-fg: #14142a;
+    --green: #6fd99b; --red: #f28b82; --amber: #f2b544;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { font: 13px/1.45 var(--font); color: var(--fg); background: var(--bg); display: flex; flex-direction: column; overflow: hidden;
+  -webkit-font-smoothing: antialiased; -webkit-user-select: none; user-select: none; cursor: default; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { border: 0; background: none; cursor: default; }
+
+header.top { flex: none; position: relative; display: flex; align-items: center; justify-content: center; height: 50px; padding: 2px 86px 0;
+  border-bottom: .5px solid var(--line); --wails-draggable: drag; }
+header.top button { --wails-draggable: no-drag; }
+.seg { display: flex; gap: 2px; padding: 2px; width: max-content; border-radius: 8px; background: var(--seg-track); }
+.seg button { height: 24px; padding: 0 14px; border-radius: 6px; white-space: nowrap; color: var(--fg-2); }
+.seg button.on { background: var(--seg-thumb); box-shadow: var(--seg-edge); color: var(--fg); font-weight: 600; }
+
+main { flex: 1; overflow: auto; padding: 22px 28px 40px; }
+.view { display: none; max-width: 640px; margin: 0 auto; }
+.view.on { display: block; }
+h1 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 6px; }
+h2 { font-size: 13px; font-weight: 600; color: var(--fg-2); margin: 22px 0 8px; }
+.lede { color: var(--muted); margin-bottom: 14px; }
+.help { color: var(--muted); font-size: 12px; margin: -2px 0 10px 130px; }
+.card { background: var(--card); border: .5px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+.card.tips p { margin: 4px 0; color: var(--fg-2); }
+.checklist { list-style: none; }
+.checklist li { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: .5px solid var(--line); }
+.checklist li:last-child { border-bottom: 0; }
+.checklist .mark { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--faint); flex: none; position: relative; }
+.checklist li.ok .mark { border-color: var(--green); background: var(--green); }
+.checklist li.ok .mark::after { content: ""; position: absolute; left: 5px; top: 2px; width: 5px; height: 9px; border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.checklist li.warn .mark { border-color: var(--amber); }
+.checklist .text { flex: 1; display: flex; flex-direction: column; }
+.checklist .sub { color: var(--muted); font-size: 12px; }
+.pill { background: var(--pill); border-radius: 999px; padding: 4px 11px; font-size: 12px; white-space: nowrap; }
+.pill:hover { background: var(--pill-hover); }
+.primary { background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 5px 14px; font-weight: 600; }
+.form .row { display: flex; align-items: center; gap: 12px; margin: 8px 0; }
+.form .label { width: 118px; flex: none; color: var(--fg-2); text-align: right; }
+.form input[type=text], .form input[type=password], .form input[type=url], .form textarea {
+  flex: 1; width: 100%; background: var(--bg); border: .5px solid var(--line); border-radius: 7px; padding: 6px 9px; outline: none;
+  -webkit-user-select: text; user-select: text; }
+.form input:focus, .form textarea:focus { border-color: var(--accent); }
+.form .field { flex: 1; display: flex; align-items: center; gap: 8px; }
+.form input[type=range] { flex: 1; accent-color: var(--accent); }
+.form .value { width: 50px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.result { color: var(--muted); font-size: 12px; }
+.result.ok { color: var(--green); }
+.result.bad { color: var(--red); }
+textarea { resize: vertical; font-family: var(--code); font-size: 12px; }
+.code { font: 12px/1.5 var(--code); white-space: pre-wrap; background: var(--bg); border-radius: 7px; padding: 10px; margin-top: 8px; min-height: 40px;
+  -webkit-user-select: text; user-select: text; }
+.mono { font-family: var(--code); font-size: 12px; color: var(--muted); }
+table.learned { width: 100%; border-collapse: collapse; }
+table.learned td { padding: 6px 4px; border-bottom: .5px solid var(--line); }
+table.learned td.count { text-align: right; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+table.learned td.when { color: var(--muted); font-size: 12px; text-align: right; }
+table.learned td.empty { color: var(--muted); text-align: center; padding: 14px; }
+.add { display: flex; justify-content: flex-end; margin-top: 8px; }
+body.not-mac .mac-only { display: none; }

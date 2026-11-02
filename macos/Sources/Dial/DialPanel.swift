@@ -1,0 +1,303 @@
+import AppKit
+
+/// The floating window: borderless, on every space, never takes the
+/// keyboard focus from the app in front. Dragged anywhere but a click.
+final class DialPanel: NSPanel {
+    let view = DialView(frame: NSRect(x: 0, y: 0, width: DialView.width, height: DialView.height))
+
+    init() {
+        super.init(contentRect: view.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        level = .floating
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = false
+        collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        isMovableByWindowBackground = false
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        contentView = view
+        restorePosition()
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: self, queue: .main) { [weak self] _ in
+            self?.savePosition()
+        }
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+
+    func show() {
+        orderFrontRegardless()
+    }
+
+    private func restorePosition() {
+        let defaults = UserDefaults.standard
+        if let x = defaults.object(forKey: "dial.x") as? Double, let y = defaults.object(forKey: "dial.y") as? Double,
+           NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(NSPoint(x: x, y: y)) }) {
+            setFrameOrigin(NSPoint(x: x, y: y))
+            return
+        }
+        guard let screen = NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        setFrameOrigin(NSPoint(x: visible.maxX - frame.width - 24, y: visible.minY + 24))
+    }
+
+    private func savePosition() {
+        UserDefaults.standard.set(Double(frame.origin.x), forKey: "dial.x")
+        UserDefaults.standard.set(Double(frame.origin.y), forKey: "dial.y")
+    }
+}
+
+/// The dial itself: an app ring around a microphone button, with what
+/// was heard underneath.
+final class DialView: NSView {
+    static let width: CGFloat = 200
+    static let height: CGFloat = 240
+    static let outerRadius: CGFloat = 86
+    static let innerRadius: CGFloat = 50
+    static let buttonRadius: CGFloat = 40
+    static let maxSlots = 8
+
+    weak var controller: DialController?
+
+    var ring: [AppInfo] = [] { didSet { needsDisplay = true } }
+    var activeID: String? { didSet { needsDisplay = true } }
+    var phase: Phase = .idle {
+        didSet {
+            needsDisplay = true
+            pulse(phase == .listening || phase == .thinking)
+        }
+    }
+    var transcript: String = "" { didSet { needsDisplay = true } }
+    var hint: String? { didSet { needsDisplay = true } }
+    var hintIsError = false { didSet { needsDisplay = true } }
+    /// The pointer is over the dial: the keys are the dial's.
+    private(set) var armed = false { didSet { needsDisplay = true } }
+
+    private var pulseTimer: Timer?
+    private var pulsePhase: CGFloat = 0
+    private var mouseDownAt: NSPoint?
+    private var dragging = false
+    private var wheelX: CGFloat = 0
+    private var wheelY: CGFloat = 0
+
+    private var center: NSPoint { NSPoint(x: bounds.midX, y: Self.height - 8 - Self.outerRadius) }
+
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                       owner: self, userInfo: nil))
+    }
+
+    override func mouseEntered(with event: NSEvent) { armed = true }
+    override func mouseExited(with event: NSEvent) { armed = false }
+
+    private func pulse(_ on: Bool) {
+        if on, pulseTimer == nil {
+            pulseTimer = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] _ in
+                guard let self else { return }
+                self.pulsePhase += 0.12
+                self.needsDisplay = true
+            }
+        } else if !on {
+            pulseTimer?.invalidate()
+            pulseTimer = nil
+            pulsePhase = 0
+        }
+    }
+
+    // MARK: - Geometry
+
+    private func slotCenter(_ index: Int, of count: Int) -> NSPoint {
+        let angle = CGFloat.pi / 2 - CGFloat(index) * 2 * .pi / CGFloat(count)
+        let radius = (Self.outerRadius + Self.innerRadius) / 2
+        return NSPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
+    }
+
+    private func slot(at point: NSPoint) -> Int? {
+        let d = hypot(point.x - center.x, point.y - center.y)
+        guard d >= Self.innerRadius, d <= Self.outerRadius, !ring.isEmpty else { return nil }
+        var angle = atan2(point.y - center.y, point.x - center.x)
+        var turn = (CGFloat.pi / 2 - angle) / (2 * .pi)  // clockwise from the top, in turns
+        while turn < 0 { turn += 1 }
+        angle = turn * CGFloat(ring.count) + 0.5
+        return Int(angle.rounded(.down)) % ring.count
+    }
+
+    private func inButton(_ point: NSPoint) -> Bool {
+        hypot(point.x - center.x, point.y - center.y) <= Self.buttonRadius
+    }
+
+    // MARK: - Mouse
+
+    override func mouseDown(with event: NSEvent) {
+        mouseDownAt = event.locationInWindow
+        dragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = mouseDownAt else { return }
+        if !dragging, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 {
+            dragging = true
+            window?.performDrag(with: event)
+        }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { mouseDownAt = nil }
+        guard !dragging else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        if inButton(point) {
+            controller?.toggleListening()
+        } else if let index = slot(at: point), index < ring.count {
+            controller?.pick(ring[index].id)
+        }
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+        wheelX += event.scrollingDeltaX * scale
+        wheelY += event.scrollingDeltaY * scale
+        if abs(wheelX) >= 40 {
+            controller?.turnRing(by: wheelX > 0 ? -1 : 1)
+            wheelX = 0
+        }
+        if abs(wheelY) >= 10 {
+            Input.scroll(lines: Int32((wheelY / 10).rounded()))
+            wheelY = 0
+        }
+        if event.phase == .ended || event.momentumPhase == .ended {
+            wheelX = 0
+            wheelY = 0
+        }
+    }
+
+    // MARK: - Drawing
+
+    override func draw(_ dirtyRect: NSRect) {
+        let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let surface = dark ? NSColor(white: 0.14, alpha: 0.94) : NSColor(white: 0.97, alpha: 0.94)
+        let edge = dark ? NSColor(white: 1, alpha: 0.12) : NSColor(white: 0, alpha: 0.12)
+        let accent = NSColor.controlAccentColor
+
+        // The ring.
+        let outer = NSBezierPath(ovalIn: NSRect(x: center.x - Self.outerRadius, y: center.y - Self.outerRadius,
+                                                width: Self.outerRadius * 2, height: Self.outerRadius * 2))
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowBlurRadius = 10
+        shadow.shadowOffset = NSSize(width: 0, height: -2)
+        shadow.shadowColor = NSColor(white: 0, alpha: dark ? 0.5 : 0.25)
+        shadow.set()
+        surface.setFill()
+        outer.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        (armed ? accent.withAlphaComponent(0.8) : edge).setStroke()
+        outer.lineWidth = armed ? 2 : 1
+        outer.stroke()
+
+        // The slots.
+        let count = min(ring.count, Self.maxSlots)
+        for index in 0..<count {
+            let app = ring[index]
+            let at = slotCenter(index, of: count)
+            let size: CGFloat = 30
+            if app.id == activeID {
+                let highlight = NSBezierPath(ovalIn: NSRect(x: at.x - 19, y: at.y - 19, width: 38, height: 38))
+                accent.withAlphaComponent(0.28).setFill()
+                highlight.fill()
+                accent.setStroke()
+                highlight.lineWidth = 1.5
+                highlight.stroke()
+            }
+            let rect = NSRect(x: at.x - size / 2, y: at.y - size / 2, width: size, height: size)
+            if let icon = app.icon {
+                icon.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            } else {
+                let initial = String(app.name.prefix(1)).uppercased()
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 15, weight: .semibold),
+                                                            .foregroundColor: NSColor.labelColor]
+                let s = NSAttributedString(string: initial, attributes: attrs)
+                let sz = s.size()
+                s.draw(at: NSPoint(x: at.x - sz.width / 2, y: at.y - sz.height / 2))
+            }
+        }
+        if count == 0 {
+            let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10),
+                                                        .foregroundColor: NSColor.tertiaryLabelColor]
+            let s = NSAttributedString(string: "← apps →", attributes: attrs)
+            let sz = s.size()
+            s.draw(at: NSPoint(x: center.x - sz.width / 2, y: center.y + Self.innerRadius + 10))
+        }
+
+        // The pulse while listening or thinking.
+        if phase != .idle {
+            let grow = 4 + 4 * (1 + sin(pulsePhase)) / 2
+            let glow = NSBezierPath(ovalIn: NSRect(x: center.x - Self.buttonRadius - grow, y: center.y - Self.buttonRadius - grow,
+                                                   width: (Self.buttonRadius + grow) * 2, height: (Self.buttonRadius + grow) * 2))
+            (phase == .listening ? NSColor.systemRed : NSColor.systemBlue).withAlphaComponent(0.25).setFill()
+            glow.fill()
+        }
+
+        // The button.
+        let button = NSBezierPath(ovalIn: NSRect(x: center.x - Self.buttonRadius, y: center.y - Self.buttonRadius,
+                                                 width: Self.buttonRadius * 2, height: Self.buttonRadius * 2))
+        let fill: NSColor
+        switch phase {
+        case .idle: fill = dark ? NSColor(white: 0.24, alpha: 1) : NSColor.white
+        case .listening: fill = .systemRed
+        case .thinking: fill = .systemBlue
+        }
+        fill.setFill()
+        button.fill()
+        edge.setStroke()
+        button.lineWidth = 1
+        button.stroke()
+        let symbol = phase == .thinking ? "ellipsis" : "mic.fill"
+        if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 26, weight: .medium)) {
+            let tinted = image.tinted(phase == .idle ? NSColor.labelColor : .white)
+            let sz = NSSize(width: 28, height: 28)
+            tinted.draw(in: NSRect(x: center.x - sz.width / 2, y: center.y - sz.height / 2, width: sz.width, height: sz.height),
+                        from: .zero, operation: .sourceOver, fraction: 1)
+        }
+
+        // What was heard, or a hint, underneath.
+        let text = hint ?? transcript
+        guard !text.isEmpty else { return }
+        let error = hint != nil && hintIsError
+        let bubble = NSRect(x: 6, y: 6, width: bounds.width - 12, height: 40)
+        let path = NSBezierPath(roundedRect: bubble, xRadius: 10, yRadius: 10)
+        (error ? NSColor.systemRed.withAlphaComponent(dark ? 0.35 : 0.18) : surface).setFill()
+        path.fill()
+        edge.setStroke()
+        path.stroke()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11),
+                                                    .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+        let s = NSAttributedString(string: text, attributes: attrs)
+        let inset = bubble.insetBy(dx: 8, dy: 4)
+        let needed = s.boundingRect(with: NSSize(width: inset.width, height: 1000), options: [.usesLineFragmentOrigin])
+        let height = min(needed.height, inset.height)
+        s.draw(with: NSRect(x: inset.minX, y: inset.midY - height / 2, width: inset.width, height: height),
+               options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine])
+    }
+}
+
+extension NSImage {
+    func tinted(_ color: NSColor) -> NSImage {
+        let image = NSImage(size: size, flipped: false) { rect in
+            self.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+}
