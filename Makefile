@@ -16,7 +16,7 @@ export CGO_CFLAGS  = -O2 -mmacosx-version-min=13.0
 export CGO_LDFLAGS = -mmacosx-version-min=13.0
 MINGW = x86_64-w64-mingw32-g++
 
-.PHONY: all build test fmt core cli macos settings install run release windows signing-identity clean
+.PHONY: all build test fmt core cli macos settings install run release windows signing-identity icon clean
 
 all: build
 build: core cli macos settings
@@ -42,6 +42,7 @@ macos: core
 	cp "$(SWIFT_BIN)" "$(DIAL_APP)/Contents/MacOS/Dial"
 	cp .build/dial-core "$(DIAL_APP)/Contents/MacOS/dial-core"
 	cp macos/Resources/Info.plist "$(DIAL_APP)/Contents/Info.plist"
+	cp macos/Resources/AppIcon.icns "$(DIAL_APP)/Contents/Resources/"
 	codesign --force --sign "$(SIGN_ID)" "$(DIAL_APP)"
 
 # dist/Dial Settings.app: the pages are embedded in the binary.
@@ -51,6 +52,7 @@ settings:
 	mkdir -p "$(SETTINGS_APP)/Contents/MacOS" "$(SETTINGS_APP)/Contents/Resources"
 	cp .build/settings/dial-settings "$(SETTINGS_APP)/Contents/MacOS/Dial Settings"
 	cp settings/build/darwin/Info.plist "$(SETTINGS_APP)/Contents/Info.plist"
+	cp settings/build/darwin/AppIcon.icns "$(SETTINGS_APP)/Contents/Resources/"
 	codesign --force --sign "$(SIGN_ID)" "$(SETTINGS_APP)"
 
 # Both apps into /Applications, synced in place so a grant tied to the
@@ -87,6 +89,18 @@ windows:
 	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/windows/dial-core.exe ./cmd/dial-core
 	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/windows/dial-cli.exe ./cmd/dial-cli
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -tags production -trimpath -ldflags "$(LDFLAGS) -H windowsgui" -o dist/windows/dial-settings.exe ./settings
+
+# The app icon, drawn by Scripts/make-icon.py; what it makes is kept in
+# the tree, so a build needs neither Python nor iconutil.
+icon:
+	rm -rf .build/AppIcon.iconset && mkdir -p .build/AppIcon.iconset
+	for s in 16 32 128 256 512; do \
+		python3 -I Scripts/make-icon.py .build/AppIcon.iconset/icon_$${s}x$${s}.png $$s && \
+		python3 -I Scripts/make-icon.py .build/AppIcon.iconset/icon_$${s}x$${s}@2x.png $$((s * 2)) || exit 1; \
+	done
+	iconutil -c icns .build/AppIcon.iconset -o macos/Resources/AppIcon.icns
+	cp macos/Resources/AppIcon.icns settings/build/darwin/AppIcon.icns
+	python3 -I Scripts/make-icon.py settings/assets/icon.png 256
 
 # A self-signed identity to sign with instead of ad hoc, so the
 # Accessibility and Microphone grants survive rebuilds.

@@ -50,6 +50,14 @@ final class DialController {
         core.start()
         keys.handler = { [weak self] code, flags in self?.handleKey(code, flags) ?? false }
         armKeys(prompt: true)
+        // Ask for the microphone now rather than at the first click, so
+        // both grants are settled together at launch.
+        MicrophoneCapture.requestAccess { [weak self] granted in
+            self?.sendGrants()
+            if !granted {
+                self?.show(hint: "Allow the microphone under Privacy & Security ▸ Microphone ▸ Dial.", error: true)
+            }
+        }
         makeStatusItem()
         panel.show()
     }
