@@ -64,7 +64,6 @@ final class DialController {
     }
 
     func stop() {
-        Input.endScrollSession()
         mic.stop()
         keys.stop()
         apps.stop()
@@ -109,9 +108,7 @@ final class DialController {
     /// only while the pointer is over the dial, so the keys stay the
     /// app's otherwise.
     private func handleKey(_ code: Int, _ flags: CGEventFlags) -> Bool {
-        // The keys stay the dial's through a scroll session, whose hops
-        // take the hidden cursor off the dial.
-        guard panel.view.armed || Input.sessionActive else { return false }
+        guard panel.view.armed else { return false }
         let modifiers = flags.intersection([.maskCommand, .maskControl, .maskAlternate])
         guard modifiers.isEmpty else { return false }
         switch code {

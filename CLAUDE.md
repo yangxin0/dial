@@ -19,9 +19,12 @@ similar marker or trailer.
 - `core/` must stay free of platform UI code so it builds for both
   platforms and stays unit-testable.
 - Scrolling the app in front on macOS (`macos/Sources/Dial/Input.swift`):
-  a wheel event posted to a process is never delivered to a view, and
-  the Accessibility API is not universal (Chrome's page has no scroll
-  bar, WezTerm no scroll area). Post the wheel into the system at the
-  window's location, then a mouse move back to where the cursor was, in
-  the same queue. Measured on 2026-11-02; don't swap it for posting to
-  a pid again.
+  post the wheel to the app's process with the window number in field 51
+  and a window-local position from the private `CGEventSetWindowLocation`.
+  Both are undocumented, so a macOS update could break them. Tested on
+  2026-11-02 with the button held, as in a ring drag: a native window and
+  Chrome scrolled and the pointer stayed put. Without those two values
+  (fields 91 and 92 don't help) the event is dropped. Don't post the wheel
+  into the system: it moves the real pointer to the event's location. The
+  recipe comes from [Orca](https://github.com/stablyai/orca/pull/36005) and
+  [2ndscreen](https://github.com/szrunworld/2ndscreen/pull/4).

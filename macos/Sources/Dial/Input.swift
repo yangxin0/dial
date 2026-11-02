@@ -11,142 +11,62 @@ enum Input {
         return AXIsProcessTrustedWithOptions(options)
     }
 
-    /// The frontmost app's frontmost window: its number, its centre in
-    /// screen coordinates with the origin at the top left, and its name.
-    struct FrontWindow {
+    // MARK: - Scrolling
+    //
+    // A wheel goes straight to the front app's process, so the pointer is
+    // not involved at all. AppKit and Chromium only deliver such an event
+    // when it carries the window's number in field 51 and a window-local
+    // position, set with the private CGEventSetWindowLocation. See CLAUDE.md.
+
+    private struct FrontWindow {
+        var pid: pid_t
         var id: CGWindowID
-        var center: CGPoint
         var bounds: CGRect
-        var name: String
     }
 
-    static func frontWindow() -> FrontWindow? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let pid = app.processIdentifier
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-            as? [[String: Any]] else { return nil }
+    /// The front app's frontmost ordinary window.
+    private static func frontWindow() -> FrontWindow? {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
         for window in list {
-            guard let owner = window[kCGWindowOwnerPID as String] as? pid_t, owner == pid,
-                  let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
-                  let number = window[kCGWindowNumber as String] as? CGWindowID,
-                  let boundsDict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: boundsDict), bounds.width > 50, bounds.height > 50
+            guard window[kCGWindowOwnerPID as String] as? pid_t == pid,
+                  window[kCGWindowLayer as String] as? Int == 0,
+                  let id = window[kCGWindowNumber as String] as? CGWindowID,
+                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict), bounds.width > 50, bounds.height > 50
             else { continue }
-            let name = window[kCGWindowName as String] as? String ?? ""
-            return FrontWindow(id: number, center: CGPoint(x: bounds.midX, y: bounds.midY), bounds: bounds, name: name)
+            return FrontWindow(pid: pid, id: id, bounds: bounds)
         }
         return nil
     }
 
-    static func frontmostWindowCenter() -> CGPoint? { frontWindow()?.center }
+    private static let windowNumberField = CGEventField(rawValue: 51)!
 
-    /// Marks the dial's own events, so one that comes back to the dial is
-    /// known and dropped.
-    static let scrollTag: Int64 = 0xD1A1
+    private typealias SetWindowLocation = @convention(c) (CGEvent, CGPoint) -> Void
+    private static let setWindowLocation: SetWindowLocation? = {
+        _ = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW)
+        let anyImage = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
+        return dlsym(anyImage, "CGEventSetWindowLocation").map { unsafeBitCast($0, to: SetWindowLocation.self) }
+    }()
 
-    /// The dial's own frame, in screen coordinates with the origin at the
-    /// top left, so a scroll is never aimed at the dial itself.
-    static var dialFrame = CGRect.zero
-
-    /// The current cursor position, origin at the top left.
-    static var cursor: CGPoint {
-        let m = NSEvent.mouseLocation
-        let height = NSScreen.screens.first?.frame.height ?? 0
-        return CGPoint(x: m.x, y: height - m.y)
-    }
-
-    /// Where the pointer last was over the dial, origin at the top left:
-    /// where the cursor goes back to after a scroll. The live cursor
-    /// position can't be used for that, since in a burst of scrolls it
-    /// already reflects the hop to the window.
-    static var home: CGPoint?
-
-    /// Where the last scroll was aimed: a mouse event that lands there is
-    /// the hop, not the pointer.
-    static var lastTarget: CGPoint?
-
-    // MARK: - Scroll sessions
-    //
-    // Measured on 2026-11-02: a wheel event posted to a process is never
-    // delivered to a view; one posted into the system (HID or session tap)
-    // is delivered to the window at its location, and moves the cursor
-    // there; a mouse move posted after it to bring the cursor back is not
-    // honoured while the button is held; decoupling the mouse from the
-    // cursor stops delivery altogether; a warp is exact; a background
-    // process may hide the cursor. So a scroll gesture is a session: the
-    // cursor is hidden while it lasts, the wheels hop it to the window in
-    // front unseen, and when the gesture ends the cursor is warped back to
-    // where the pointer is and shown again. During a ring drag the pointer
-    // is followed by the mouse's own deltas, which the hops don't touch.
-
-    private(set) static var sessionActive = false
-    /// A ring drag holds the session open until it lets go; otherwise it
-    /// ends a moment after the last scroll.
-    static var holdScrollSession = false
-    private static var sessionIdle: Timer?
-    private static var sessionWatchdog: Timer?
-
-    private static func beginScrollSession() {
-        guard !sessionActive else { return }
-        sessionActive = true
-        CGDisplayHideCursor(CGMainDisplayID())
-        Log.write("scroll session: cursor hidden at \(home.map { "\(Int($0.x)),\(Int($0.y))" } ?? "?")")
-    }
-
-    /// Ends the session: the cursor comes back where the pointer is, and
-    /// shows again.
-    static func endScrollSession() {
-        guard sessionActive else { return }
-        sessionActive = false
-        sessionIdle?.invalidate()
-        sessionIdle = nil
-        sessionWatchdog?.invalidate()
-        sessionWatchdog = nil
-        let back = home ?? cursor
-        CGWarpMouseCursorPosition(back)
-        CGAssociateMouseAndMouseCursorPosition(boolean_t(1))
-        CGDisplayShowCursor(CGMainDisplayID())
-        Log.write("scroll session over, cursor back to \(Int(back.x)),\(Int(back.y))")
-    }
-
-    private static func touchSession() {
-        sessionIdle?.invalidate()
-        sessionIdle = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: false) { _ in
-            if !holdScrollSession { endScrollSession() }
-        }
-        sessionWatchdog?.invalidate()
-        sessionWatchdog = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
-            holdScrollSession = false
-            endScrollSession()
-        }
-    }
-
-    /// Scrolls the app in front by `lines`: up when positive.
+    /// Scrolls the app in front by `lines`, at the middle of its window: up
+    /// when positive.
     static func scroll(lines: Int32) {
-        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
-                                  wheel1: lines, wheel2: 0, wheel3: 0) else { return }
-        event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-        guard let window = frontWindow() else {
-            event.post(tap: .cghidEventTap)
-            Log.write("scroll \(lines) → under the cursor (no window in front)")
+        guard let setWindowLocation else {
+            Log.write("scroll: this macOS has no CGEventSetWindowLocation")
             return
         }
-        beginScrollSession()
-        event.location = target(in: window)
-        lastTarget = event.location
-        event.post(tap: .cghidEventTap)
-        touchSession()
-        Log.write("scroll \(lines) → «\(window.name)» at \(Int(event.location.x)),\(Int(event.location.y))")
-    }
-
-    /// Where in the window to aim: its centre, unless the dial sits there,
-    /// then a point a quarter of the way in from the top left.
-    private static func target(in window: FrontWindow) -> CGPoint {
-        if !dialFrame.insetBy(dx: -8, dy: -8).contains(window.center) { return window.center }
-        let b = window.bounds
-        let alternative = CGPoint(x: b.minX + b.width / 4, y: b.minY + b.height / 4)
-        return dialFrame.insetBy(dx: -8, dy: -8).contains(alternative)
-            ? CGPoint(x: b.maxX - b.width / 4, y: b.maxY - b.height / 4) : alternative
+        guard let window = frontWindow(),
+              let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
+                                  wheel1: lines, wheel2: 0, wheel3: 0) else {
+            Log.write("scroll: no window in front")
+            return
+        }
+        event.location = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
+        setWindowLocation(event, CGPoint(x: window.bounds.width / 2, y: window.bounds.height / 2))
+        event.setIntegerValueField(windowNumberField, value: Int64(window.id))
+        event.postToPid(window.pid)
     }
 
     static func key(_ code: CGKeyCode, flags: CGEventFlags = []) {
