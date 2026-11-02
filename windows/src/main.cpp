@@ -846,7 +846,7 @@ struct Dial {
         }
         SolidBrush fill(surface);
         g.FillEllipse(&fill, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
-        Pen outline(armed ? accent : edge, armed ? 2.0f : 1.0f);
+        Pen outline(edge, armed ? 2.0f : 1.0f);
         g.DrawEllipse(&outline, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
 
         // The slots.
@@ -855,10 +855,14 @@ struct Dial {
             const AppInfo* app = apps.find(ring[i]);
             PointF at = slotCenter(i, count);
             if (ring[i] == activeID) {
-                SolidBrush glow(Color(70, accent.GetR(), accent.GetG(), accent.GetB()));
-                g.FillEllipse(&glow, at.X - 19, at.Y - 19, 38.0f, 38.0f);
-                Pen rim(accent, 1.5f);
-                g.DrawEllipse(&rim, at.X - 19, at.Y - 19, 38.0f, 38.0f);
+                // The active app: a lit segment of the rim at its slot.
+                float centerAngle = -90.0f + (float)i * 360.0f / (float)count;
+                float span = min(0.7f * 360.0f / (float)count, 90.0f);
+                Pen segment(accent, 4.0f);
+                segment.SetStartCap(LineCapRound);
+                segment.SetEndCap(LineCapRound);
+                float r = kOuter - 3;
+                g.DrawArc(&segment, c.x - r, c.y - r, r * 2, r * 2, centerAngle - span / 2, span);
             }
             if (app && app->icon) {
                 g.DrawImage(app->icon.get(), at.X - 15, at.Y - 15, 30.0f, 30.0f);
@@ -893,7 +897,8 @@ struct Dial {
                                                                          : dark ? Color(255, 62, 62, 68) : Color(255, 255, 255, 255);
         SolidBrush button(buttonFill);
         g.FillEllipse(&button, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
-        Pen buttonEdge(edge, 1.0f);
+        // Hovering: the keys are the dial's, said by the button's edge.
+        Pen buttonEdge(armed ? accent : edge, armed ? 2.0f : 1.0f);
         g.DrawEllipse(&buttonEdge, c.x - kButton, c.y - kButton, kButton * 2, kButton * 2);
         // A microphone, drawn: a capsule, a cradle, a stem.
         Color glyph = phase == Idle ? label : Color(255, 255, 255, 255);

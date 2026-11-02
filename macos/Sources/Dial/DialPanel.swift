@@ -195,23 +195,26 @@ final class DialView: NSView {
         surface.setFill()
         outer.fill()
         NSGraphicsContext.restoreGraphicsState()
-        (armed ? accent.withAlphaComponent(0.8) : edge).setStroke()
+        edge.setStroke()
         outer.lineWidth = armed ? 2 : 1
         outer.stroke()
 
-        // The slots.
+        // The slots; the active app's is marked by a lit segment of the rim.
         let count = min(ring.count, Self.maxSlots)
         for index in 0..<count {
             let app = ring[index]
             let at = slotCenter(index, of: count)
             let size: CGFloat = 30
             if app.id == activeID {
-                let highlight = NSBezierPath(ovalIn: NSRect(x: at.x - 19, y: at.y - 19, width: 38, height: 38))
-                accent.withAlphaComponent(0.28).setFill()
-                highlight.fill()
+                let centerAngle = 90 - CGFloat(index) * 360 / CGFloat(count)
+                let span = min(0.7 * 360 / CGFloat(count), 90)
+                let segment = NSBezierPath()
+                segment.appendArc(withCenter: center, radius: Self.outerRadius - 3,
+                                  startAngle: centerAngle - span / 2, endAngle: centerAngle + span / 2)
+                segment.lineWidth = 4
+                segment.lineCapStyle = .round
                 accent.setStroke()
-                highlight.lineWidth = 1.5
-                highlight.stroke()
+                segment.stroke()
             }
             let rect = NSRect(x: at.x - size / 2, y: at.y - size / 2, width: size, height: size)
             if let icon = app.icon {
@@ -253,8 +256,9 @@ final class DialView: NSView {
         }
         fill.setFill()
         button.fill()
-        edge.setStroke()
-        button.lineWidth = 1
+        // Hovering: the keys are the dial's, said by the button's edge.
+        (armed ? accent : edge).setStroke()
+        button.lineWidth = armed ? 2 : 1
         button.stroke()
         let symbol = phase == .thinking ? "ellipsis" : "mic.fill"
         if let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
