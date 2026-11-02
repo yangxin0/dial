@@ -869,18 +869,10 @@ struct Dial {
         for (int i = 0; i < count; i++) {
             const AppInfo* app = apps.find(ring[i]);
             PointF at = slotCenter(i, count);
-            if (ring[i] == activeID) {
-                // The active app: a lit segment of the rim at its slot.
-                float centerAngle = -90.0f + (float)i * 360.0f / (float)count;
-                float span = min(0.7f * 360.0f / (float)count, 90.0f);
-                Pen segment(accent, 4.0f);
-                segment.SetStartCap(LineCapRound);
-                segment.SetEndCap(LineCapRound);
-                float r = kOuter - 3;
-                g.DrawArc(&segment, c.x - r, c.y - r, r * 2, r * 2, centerAngle - span / 2, span);
-            }
+            // The active app's icon is a fifth larger than the rest.
+            float size = ring[i] == activeID ? 36.0f : 30.0f;
             if (app && app->icon) {
-                g.DrawImage(app->icon.get(), at.X - 15, at.Y - 15, 30.0f, 30.0f);
+                g.DrawImage(app->icon.get(), at.X - size / 2, at.Y - size / 2, size, size);
             } else {
                 std::wstring initial = app && !app->name.empty() ? app->name.substr(0, 1) : L"?";
                 Font font(L"Segoe UI", 14, FontStyleBold);

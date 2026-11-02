@@ -226,23 +226,12 @@ final class DialView: NSView {
         outer.lineWidth = hover == .ring ? 2 : 1
         outer.stroke()
 
-        // The slots; the active app's is marked by a lit segment of the rim.
+        // The slots; the active app's icon is a fifth larger than the rest.
         let count = min(ring.count, Self.maxSlots)
         for index in 0..<count {
             let app = ring[index]
             let at = slotCenter(index, of: count)
-            let size: CGFloat = 30
-            if app.id == activeID {
-                let centerAngle = 90 - CGFloat(index) * 360 / CGFloat(count)
-                let span = min(0.7 * 360 / CGFloat(count), 90)
-                let segment = NSBezierPath()
-                segment.appendArc(withCenter: center, radius: Self.outerRadius - 3,
-                                  startAngle: centerAngle - span / 2, endAngle: centerAngle + span / 2)
-                segment.lineWidth = 4
-                segment.lineCapStyle = .round
-                accent.setStroke()
-                segment.stroke()
-            }
+            let size: CGFloat = app.id == activeID ? 36 : 30
             let rect = NSRect(x: at.x - size / 2, y: at.y - size / 2, width: size, height: size)
             if let icon = app.icon {
                 icon.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
