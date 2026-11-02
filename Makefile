@@ -62,8 +62,12 @@ install: macos settings
 	codesign --force --sign "$(SIGN_ID)" "/Applications/Dial.app"
 	codesign --force --sign "$(SIGN_ID)" "/Applications/Dial Settings.app"
 
+# The old dial is given a moment to quit (open fails with -600 while
+# Launch Services still sees it), and a core left behind goes with it.
 run: macos
 	pkill -x Dial || true
+	pkill -f 'Dial.app/Contents/MacOS/dial-core' || true
+	for i in 1 2 3 4 5 6 7 8 9 10; do pgrep -x Dial >/dev/null || break; sleep 0.3; done
 	open "$(DIAL_APP)"
 
 release:

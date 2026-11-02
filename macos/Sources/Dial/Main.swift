@@ -17,8 +17,17 @@ enum Main {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controller: DialController?
+    private var terminate: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A SIGTERM (pkill, make run) quits the app the normal way, so the
+        // core it started is stopped too.
+        signal(SIGTERM, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler { NSApp.terminate(nil) }
+        source.resume()
+        terminate = source
+
         let controller = DialController()
         self.controller = controller
         controller.start()

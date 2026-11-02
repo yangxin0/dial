@@ -49,6 +49,54 @@ type Options struct {
 // Server accepts dials.
 type Server struct {
 	o Options
+
+	mu   sync.Mutex
+	dial protocol.DialStatus
+	// dialSession is the session of the dial itself (not Settings or a
+	// check), whose grants dial is.
+	dialSession *session
+}
+
+// dialStatus is a copy of what the dial reported.
+func (s *Server) dialStatus() *protocol.DialStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	d := s.dial
+	return &d
+}
+
+// isDial says whether platform names a native dial, as opposed to
+// Settings or a check from a terminal.
+func isDial(platform string) bool {
+	return platform == "macos" || platform == "windows"
+}
+
+func (s *Server) setDial(sess *session, platform string, ready map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess != nil && s.dialSession != sess {
+		s.dialSession = sess
+		s.dial = protocol.DialStatus{}
+	}
+	s.dial.Connected = true
+	if platform != "" {
+		s.dial.Platform = platform
+	}
+	if v, ok := ready["accessibility"]; ok {
+		s.dial.Accessibility = v
+	}
+	if v, ok := ready["microphone"]; ok {
+		s.dial.Microphone = v
+	}
+}
+
+func (s *Server) dialGone(sess *session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dialSession == sess {
+		s.dialSession = nil
+		s.dial.Connected = false
+	}
 }
 
 // New is a server with the options filled in.
@@ -100,6 +148,7 @@ func (s *Server) Handle(ctx context.Context, conn net.Conn) {
 	defer cancel()
 	sess := &session{s: s, conn: conn, ctx: ctx}
 	defer sess.cancelRecording()
+	defer s.dialGone(sess)
 	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
 	for scanner.Scan() {
@@ -139,6 +188,12 @@ type recording struct {
 	// cancelled once the dial gave up on it: no result follows.
 	cancelled bool
 	timer     *time.Timer
+}
+
+func (s *Server) isDialSession(sess *session) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dialSession == sess
 }
 
 func (sess *session) send(m protocol.Message) {
@@ -187,9 +242,16 @@ func (sess *session) sendRing() {
 func (sess *session) handle(m protocol.Message) {
 	switch m.Type {
 	case protocol.Hello:
+		if isDial(m.Platform) {
+			sess.s.setDial(sess, m.Platform, m.Ready)
+		}
 		c := sess.config()
-		sess.send(protocol.Message{Type: protocol.Hello, Version: sess.s.o.Version, Ready: c.Ready()})
+		sess.send(protocol.Message{Type: protocol.Hello, Version: sess.s.o.Version, Ready: c.Ready(), Dial: sess.s.dialStatus()})
 		sess.sendState(protocol.PhaseIdle)
+	case protocol.Status:
+		if sess.s.isDialSession(sess) {
+			sess.s.setDial(sess, "", m.Ready)
+		}
 	case protocol.Apps:
 		sess.mu.Lock()
 		sess.apps = m.Apps

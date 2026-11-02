@@ -46,7 +46,22 @@ async function refreshStatus() {
   $("#chk-core").className = s.core.running ? "ok" : "";
   $("#chk-voice").className = s.voice ? "ok" : "";
   $("#chk-jev").className = s.jev ? "ok" : "warn";
-  $("#chk-permissions").className = "warn";
+  const d = s.dial || {};
+  const perms = $("#chk-permissions");
+  const sub = $("#permissions-sub");
+  if (!d.connected) {
+    perms.className = "";
+    sub.textContent = "Open Dial: it reports its Accessibility and Microphone grants here.";
+  } else if (d.accessibility && d.microphone) {
+    perms.className = "ok";
+    sub.textContent = "Accessibility and the Microphone are both allowed.";
+  } else {
+    perms.className = "warn";
+    const missing = [];
+    if (!d.accessibility) missing.push("Accessibility (System Settings ▸ Privacy & Security ▸ Accessibility ▸ Dial)");
+    if (!d.microphone) missing.push("the Microphone (asked on the first recording)");
+    sub.textContent = "Still needed: " + missing.join(" and ") + ".";
+  }
   $("#version").textContent = s.version;
   $("#configPath").textContent = s.config;
 }

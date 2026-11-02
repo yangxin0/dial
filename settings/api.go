@@ -218,6 +218,7 @@ func (h *host) status(ctx context.Context) object {
 	cfg, loadErr := config.Load(h.path)
 	ready := cfg.Ready()
 	core := object{"running": false}
+	dial := protocol.DialStatus{}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var d net.Dialer
@@ -230,6 +231,9 @@ func (h *host) status(ctx context.Context) object {
 			var m protocol.Message
 			if json.Unmarshal(line, &m) == nil && m.Type == protocol.Hello {
 				core = object{"running": true, "version": m.Version}
+				if m.Dial != nil {
+					dial = *m.Dial
+				}
 			}
 		}
 	}
@@ -239,6 +243,6 @@ func (h *host) status(ctx context.Context) object {
 	}
 	return object{
 		"version": h.version, "os": runtime.GOOS, "config": h.path, "problem": problem,
-		"voice": ready["voice"], "jev": ready["jev"], "port": cfg.Port, "core": core,
+		"voice": ready["voice"], "jev": ready["jev"], "port": cfg.Port, "core": core, "dial": dial,
 	}
 }

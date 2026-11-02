@@ -134,11 +134,15 @@ final class CoreClient {
         if let process, process.isRunning { return }
         let beside = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("dial-core")
         let process = Process()
+        // The core exits by itself once this process is gone (-parent), so
+        // a dial killed outright leaves no core behind.
+        let parent = ["-parent", String(ProcessInfo.processInfo.processIdentifier)]
         if FileManager.default.isExecutableFile(atPath: beside.path) {
             process.executableURL = beside
+            process.arguments = parent
         } else {
             process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["dial-core"]
+            process.arguments = ["dial-core"] + parent
         }
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError

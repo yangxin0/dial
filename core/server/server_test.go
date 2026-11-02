@@ -191,6 +191,43 @@ func TestStartWithoutEngine(t *testing.T) {
 	}
 }
 
+func TestDialStatusReachesSettings(t *testing.T) {
+	f := setupFixture(t, nil)
+	dial := f.client
+	dial.send(protocol.Message{Type: protocol.Hello, Platform: "macos", Ready: map[string]bool{"accessibility": false, "microphone": true}})
+	hello := dial.expect(protocol.Hello)
+	if hello.Dial == nil || !hello.Dial.Connected || hello.Dial.Accessibility || !hello.Dial.Microphone {
+		t.Fatalf("dial's hello %+v", hello.Dial)
+	}
+	dial.send(protocol.Message{Type: protocol.Status, Ready: map[string]bool{"accessibility": true}})
+
+	// Settings connects and asks.
+	conn, err := net.Dial("tcp", dial.conn.RemoteAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	settings := client{conn: conn, r: bufio.NewReader(conn), t: t}
+	settings.send(protocol.Message{Type: protocol.Hello, Platform: "settings"})
+	hello = settings.expect(protocol.Hello)
+	if hello.Dial == nil || !hello.Dial.Connected || hello.Dial.Platform != "macos" || !hello.Dial.Accessibility || !hello.Dial.Microphone {
+		t.Fatalf("settings' hello %+v", hello.Dial)
+	}
+	// A status from Settings changes nothing.
+	settings.send(protocol.Message{Type: protocol.Status, Ready: map[string]bool{"accessibility": false}})
+	settings.send(protocol.Message{Type: protocol.Hello, Platform: "settings"})
+	if hello = settings.expect(protocol.Hello); !hello.Dial.Accessibility {
+		t.Fatalf("settings changed the dial's status: %+v", hello.Dial)
+	}
+	// The dial hangs up.
+	dial.conn.Close()
+	time.Sleep(100 * time.Millisecond)
+	settings.send(protocol.Message{Type: protocol.Hello, Platform: "settings"})
+	if hello = settings.expect(protocol.Hello); hello.Dial.Connected {
+		t.Fatalf("dial still connected: %+v", hello.Dial)
+	}
+}
+
 func TestCancel(t *testing.T) {
 	c, fake := setup(t, []string{"never"})
 	c.send(protocol.Message{Type: protocol.Start})

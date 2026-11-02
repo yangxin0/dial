@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import os.log
 
 private let log = Logger(subsystem: "com.yangxin.dial", category: "dial")
@@ -31,6 +32,7 @@ final class DialController {
             var hello = Message(type: "hello")
             hello.platform = "macos"
             hello.version = dialVersion
+            hello.ready = self.grants
             self.core.send(hello)
             self.sendApps()
         }
@@ -59,6 +61,20 @@ final class DialController {
         core.stop()
     }
 
+    // MARK: - Grants
+
+    /// What macOS has allowed, for Settings' checklist.
+    private var grants: [String: Bool] {
+        ["accessibility": Input.trusted(prompt: false),
+         "microphone": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized]
+    }
+
+    private func sendGrants() {
+        var status = Message(type: "status")
+        status.ready = grants
+        core.send(status)
+    }
+
     // MARK: - Keys
 
     /// The key tap needs the Accessibility grant; until it is given, ask
@@ -67,6 +83,8 @@ final class DialController {
         if Input.trusted(prompt: prompt), keys.start() {
             trustTimer?.invalidate()
             trustTimer = nil
+            if panel.view.hintIsError { panel.view.hint = nil }
+            sendGrants()
             return
         }
         show(hint: "Allow Dial in System Settings ▸ Privacy & Security ▸ Accessibility to use the keys.", error: true)
@@ -158,6 +176,7 @@ final class DialController {
         }
         MicrophoneCapture.requestAccess { [weak self] granted in
             guard let self else { return }
+            self.sendGrants()
             guard granted else {
                 self.show(hint: "Allow the microphone in System Settings ▸ Privacy & Security ▸ Microphone.", error: true)
                 return

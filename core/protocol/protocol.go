@@ -38,7 +38,19 @@ const (
 	// Switched says the user turned the ring to App, so the core learns it.
 	// The core answers with a Ring.
 	Switched = "switched"
+	// Status is the dial's grants (Ready: "accessibility", "microphone"),
+	// sent whenever they change; the core passes them on to Settings.
+	Status = "status"
 )
+
+// DialStatus is what the core knows of the connected dial, in its Hello to
+// any client: Settings' checklist reads it.
+type DialStatus struct {
+	Connected     bool   `json:"connected"`
+	Platform      string `json:"platform,omitempty"`
+	Accessibility bool   `json:"accessibility"`
+	Microphone    bool   `json:"microphone"`
+}
 
 // Message types, core → dial.
 const (
@@ -69,7 +81,10 @@ type Message struct {
 	Platform string `json:"platform,omitempty"`
 	Version  string `json:"version,omitempty"`
 	// Ready, in the core's Hello: "voice" and "jev", whether each is set up.
+	// In a dial's Hello or Status: "accessibility" and "microphone".
 	Ready map[string]bool `json:"ready,omitempty"`
+	// Dial, in the core's Hello: the connected dial and its grants.
+	Dial *DialStatus `json:"dial,omitempty"`
 
 	Apps []App    `json:"apps,omitempty"`
 	Ring []string `json:"ring,omitempty"`

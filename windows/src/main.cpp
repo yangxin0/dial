@@ -430,7 +430,8 @@ struct Core {
         size_t slash = dir.find_last_of(L"\\/");
         dir = dir.substr(0, slash);
         std::wstring exe = dir + L"\\dial-core.exe";
-        std::wstring cmd = L"\"" + exe + L"\"";
+        // The core exits by itself once this process is gone (-parent).
+        std::wstring cmd = L"\"" + exe + L"\" -parent " + std::to_wstring(GetCurrentProcessId());
         STARTUPINFOW si = {};
         si.cb = sizeof si;
         PROCESS_INFORMATION pi = {};
@@ -986,7 +987,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         case WM_CORE_STATE:
             if (!d) return 0;
             if (wparam == 1) {
-                d->core.send(json::Object{{"type", "hello"}, {"platform", "windows"}, {"version", narrow(kVersion)}});
+                // Nothing to grant for the hook on Windows; the microphone is
+                // asked for by the system on the first capture.
+                d->core.send(json::Object{{"type", "hello"}, {"platform", "windows"}, {"version", narrow(kVersion)},
+                                          {"ready", json::Object{{"accessibility", true}, {"microphone", true}}}});
                 d->sendApps();
             } else {
                 d->core.drop();

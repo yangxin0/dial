@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/yangxin0/dial/core/config"
 	"github.com/yangxin0/dial/core/ring"
@@ -20,8 +21,22 @@ import (
 // version is set by the Makefile (-X main.version=…).
 var version = "dev"
 
+// watchParent ends the core once the dial that started it is gone, so a
+// dial killed outright leaves no core behind.
+func watchParent(pid int, stop func()) {
+	for {
+		time.Sleep(2 * time.Second)
+		if !parentAlive(pid) {
+			log.Printf("the dial (pid %d) is gone, exiting", pid)
+			stop()
+			return
+		}
+	}
+}
+
 func main() {
 	port := flag.Int("port", 0, "listen on this port instead of the config's")
+	parent := flag.Int("parent", 0, "exit once this process is gone: the dial that started this core")
 	configPath := flag.String("config", "", "the config file (default ~/.config/dial/config.json)")
 	showVersion := flag.Bool("version", false, "print the version")
 	flag.Parse()
@@ -56,6 +71,9 @@ func main() {
 	log.Printf("dial-core %s listening on %s, config %s", version, ln.Addr(), path)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if *parent > 0 {
+		go watchParent(*parent, stop)
+	}
 	s := server.New(server.Options{
 		Version: version,
 		Config:  func() (*config.Config, error) { return config.Load(path) },
