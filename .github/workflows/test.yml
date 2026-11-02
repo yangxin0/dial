@@ -1,0 +1,93 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A run on main finishes even when the next push lands, so every commit
+# there gets a result; a PR's run is cancelled by its next push.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # The shared core, where the tests are. Linux has no dial, so the
+  # Settings app (WebKit through cgo) is left to the other two.
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Gofmt
+        run: |
+          bad=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$bad" ]; then echo "not gofmt'd:"; echo "$bad"; exit 1; fi
+
+      - name: Vet
+        run: go vet ./core/... ./cmd/...
+
+      - name: Test
+        run: go test ./core/...
+
+  # The Swift dial, Dial Settings, and both bundles.
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Toolchain
+        run: swift --version && go version
+
+      - name: Test
+        run: make test
+
+      - name: Bundle
+        run: make macos settings
+
+  # The C++ dial with Visual Studio, and the Go binaries for Windows.
+  # The exes are kept as an artifact: that is how the Windows dial gets
+  # tried on a Windows machine.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./core/...
+
+      - name: Go binaries
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist/windows
+          go build -trimpath -ldflags "-s -w" -o dist/windows/dial-core.exe ./cmd/dial-core
+          go build -trimpath -ldflags "-s -w" -o dist/windows/dial-cli.exe ./cmd/dial-cli
+          go build -tags production -trimpath -ldflags "-s -w -H windowsgui" -o dist/windows/dial-settings.exe ./settings
+
+      - name: Dial (C++)
+        shell: bash
+        run: |
+          cmake -S windows -B build/windows -A x64
+          cmake --build build/windows --config Release
+          cp build/windows/Release/dial.exe dist/windows/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dial-windows-x64
+          path: dist/windows/*.exe
+          if-no-files-found: error

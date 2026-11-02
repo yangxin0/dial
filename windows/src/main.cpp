@@ -10,6 +10,25 @@
 #define _UNICODE
 #endif
 #define _WIN32_WINNT 0x0A00
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+// windows.h's min/max macros break std::min; GDI+'s headers want plain
+// min/max, so they get the std ones.
+#define NOMINMAX
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
+using std::max;
+using std::min;
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -21,17 +40,6 @@
 #include <dwmapi.h>
 #include <mmdeviceapi.h>
 #include <audioclient.h>
-#include <functiondiscoverykeys_devpkey.h>
-
-#include <algorithm>
-#include <atomic>
-#include <cmath>
-#include <cstdio>
-#include <map>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <vector>
 
 #include "json.h"
 

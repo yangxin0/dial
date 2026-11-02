@@ -2,7 +2,9 @@
 // serializes objects, arrays, strings (UTF-8, with \u escapes), numbers,
 // booleans and null.
 #pragma once
+#include <cctype>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <memory>
