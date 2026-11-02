@@ -16,6 +16,7 @@ enum Input {
     struct FrontWindow {
         var id: CGWindowID
         var center: CGPoint
+        var bounds: CGRect
         var name: String
     }
 
@@ -32,38 +33,65 @@ enum Input {
                   let bounds = CGRect(dictionaryRepresentation: boundsDict), bounds.width > 50, bounds.height > 50
             else { continue }
             let name = window[kCGWindowName as String] as? String ?? ""
-            return FrontWindow(id: number, center: CGPoint(x: bounds.midX, y: bounds.midY), name: name)
+            return FrontWindow(id: number, center: CGPoint(x: bounds.midX, y: bounds.midY), bounds: bounds, name: name)
         }
         return nil
     }
 
     static func frontmostWindowCenter() -> CGPoint? { frontWindow()?.center }
 
-    /// Marks the dial's own scroll events, so one that comes back to the
-    /// dial is known and dropped.
+    /// Marks the dial's own events, so one that comes back to the dial is
+    /// known and dropped.
     static let scrollTag: Int64 = 0xD1A1
 
-    /// Scrolls the app in front by `lines`: up when positive. The event
-    /// goes to the app's process with the window's centre as its place:
-    /// posted into the system instead, a scroll follows the cursor, which
-    /// is over the dial whenever the dial is being used.
+    /// The dial's own frame, in screen coordinates with the origin at the
+    /// top left, so a scroll is never aimed at the dial itself.
+    static var dialFrame = CGRect.zero
+
+    /// The current cursor position, origin at the top left.
+    static var cursor: CGPoint {
+        let m = NSEvent.mouseLocation
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        return CGPoint(x: m.x, y: height - m.y)
+    }
+
+    /// Scrolls the app in front by `lines`: up when positive.
+    ///
+    /// A wheel event posted to a process is never delivered to a view, and
+    /// one posted into the system goes to the window at its location, and
+    /// moves the cursor there. So the wheel goes into the system aimed at
+    /// the window in front, and a mouse move back to where the cursor was
+    /// follows it in the same queue: the window scrolls, the cursor never
+    /// visibly leaves the dial. Measured against a test window and Chrome.
     static func scroll(lines: Int32) {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                   wheel1: lines, wheel2: 0, wheel3: 0) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-        if let app = NSWorkspace.shared.frontmostApplication, let window = frontWindow() {
-            // The window the event is for: an app routes a mouse event by
-            // the window number it carries, and one posted to a process
-            // carries none unless it is set here.
-            event.location = window.center
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.id))
-            event.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.id))
-            event.postToPid(app.processIdentifier)
-            Log.write("scroll \(lines) → \(app.localizedName ?? "?") window \(window.id) «\(window.name)» at \(Int(window.center.x)),\(Int(window.center.y))")
-        } else {
+        let back = cursor
+        guard let window = frontWindow() else {
             event.post(tap: .cghidEventTap)
-            Log.write("scroll \(lines) → system (no window in front)")
+            Log.write("scroll \(lines) → under the cursor (no window in front)")
+            return
         }
+        event.location = target(in: window)
+        event.post(tap: .cghidEventTap)
+        let held = NSEvent.pressedMouseButtons & 1 != 0
+        if let move = CGEvent(mouseEventSource: nil, mouseType: held ? .leftMouseDragged : .mouseMoved,
+                              mouseCursorPosition: back, mouseButton: .left) {
+            move.setIntegerValueField(.eventSourceUserData, value: scrollTag)
+            move.post(tap: .cghidEventTap)
+        }
+        Log.write("scroll \(lines) → «\(window.name)» at \(Int(event.location.x)),\(Int(event.location.y)), cursor back to \(Int(back.x)),\(Int(back.y))")
+    }
+
+    /// Where in the window to aim: its centre, unless the dial sits there,
+    /// then a point a quarter of the way in from the top left.
+    private static func target(in window: FrontWindow) -> CGPoint {
+        if !dialFrame.insetBy(dx: -8, dy: -8).contains(window.center) { return window.center }
+        let b = window.bounds
+        let alternative = CGPoint(x: b.minX + b.width / 4, y: b.minY + b.height / 4)
+        return dialFrame.insetBy(dx: -8, dy: -8).contains(alternative)
+            ? CGPoint(x: b.maxX - b.width / 4, y: b.maxY - b.height / 4) : alternative
     }
 
     static func key(_ code: CGKeyCode, flags: CGEventFlags = []) {

@@ -17,9 +17,18 @@ final class DialPanel: NSPanel {
         isReleasedWhenClosed = false
         contentView = view
         restorePosition()
+        tellInputWhereWeAre()
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: self, queue: .main) { [weak self] _ in
             self?.savePosition()
+            self?.tellInputWhereWeAre()
         }
+    }
+
+    /// The frame in screen coordinates with the origin at the top left,
+    /// for scrolls to steer clear of.
+    private func tellInputWhereWeAre() {
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        Input.dialFrame = CGRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
     }
 
     override var canBecomeKey: Bool { false }
@@ -129,7 +138,12 @@ final class DialView: NSView {
         hover = .none
     }
 
+    private func isOurs(_ event: NSEvent) -> Bool {
+        event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Input.scrollTag
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        if isOurs(event) { return }
         hover = zone(at: convert(event.locationInWindow, from: nil))
     }
 
@@ -241,6 +255,8 @@ final class DialView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        // The cursor's return after a scroll is the dial's own doing.
+        if isOurs(event) { return }
         guard let start = mouseDownAt else { return }
         if !dragging {
             guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
