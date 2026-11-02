@@ -82,6 +82,13 @@ final class DialView: NSView {
     private var pulsePhase: CGFloat = 0
     private var mouseDownAt: NSPoint?
     private var dragging = false
+    /// A drag that began on the ring turns it and scrolls the app in
+    /// front; one that began on the button moves the dial.
+    private var dragZone = HoverZone.none
+    private var lastAngle: CGFloat = 0
+    private var turn: CGFloat = 0
+    /// Degrees of turn per scroll step.
+    private static let turnStep = CGFloat.pi / 12
     private var wheelX: CGFloat = 0
     private var wheelY: CGFloat = 0
 
@@ -158,16 +165,44 @@ final class DialView: NSView {
 
     // MARK: - Mouse
 
+    private func angle(of point: NSPoint) -> CGFloat {
+        atan2(point.y - center.y, point.x - center.x)
+    }
+
     override func mouseDown(with event: NSEvent) {
         mouseDownAt = event.locationInWindow
         dragging = false
+        let point = convert(event.locationInWindow, from: nil)
+        dragZone = zone(at: point)
+        lastAngle = angle(of: point)
+        turn = 0
     }
 
     override func mouseDragged(with event: NSEvent) {
         guard let start = mouseDownAt else { return }
-        if !dragging, hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 {
+        if !dragging {
+            guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
             dragging = true
-            window?.performDrag(with: event)
+            if dragZone != .ring {
+                window?.performDrag(with: event)
+                return
+            }
+        }
+        guard dragZone == .ring else { return }
+        // Turning: clockwise scrolls down, as a wheel rolled forward does.
+        let now = angle(of: convert(event.locationInWindow, from: nil))
+        var delta = now - lastAngle
+        if delta > .pi { delta -= 2 * .pi }
+        if delta < -.pi { delta += 2 * .pi }
+        lastAngle = now
+        turn += delta
+        while turn >= Self.turnStep {
+            turn -= Self.turnStep
+            Input.scroll(lines: 3)
+        }
+        while turn <= -Self.turnStep {
+            turn += Self.turnStep
+            Input.scroll(lines: -3)
         }
     }
 

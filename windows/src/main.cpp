@@ -569,6 +569,11 @@ struct Dial {
     float pulse = 0;
     POINT dragStart = {};
     bool dragging = false, pressed = false;
+    // A drag that began on the ring turns it and scrolls the app in
+    // front; one that began on the button moves the dial.
+    int dragZone = 0;
+    float lastAngle = 0, turn = 0;
+    static constexpr float kTurnStep = (float)M_PI / 12;
     int wheelX = 0, wheelY = 0;
     bool dark = false;
 
@@ -796,6 +801,11 @@ struct Dial {
         POINT c = center();
         float dx = (float)(p.x - c.x), dy = (float)(p.y - c.y);
         return sqrtf(dx * dx + dy * dy) <= kButton;
+    }
+
+    float angleOf(POINT p) const {
+        POINT c = center();
+        return atan2f((float)(p.y - c.y), (float)(p.x - c.x));
     }
 
     int zoneAt(POINT p) const {
@@ -1033,14 +1043,29 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 int zone = d->zoneAt({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)});
                 if (zone != d->hoverZone) { d->hoverZone = zone; d->redraw(); }
             }
-            if (d && d->pressed && !d->dragging) {
+            if (d && d->pressed) {
                 POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-                if (abs(p.x - d->dragStart.x) > 4 || abs(p.y - d->dragStart.y) > 4) {
+                if (!d->dragging) {
+                    if (abs(p.x - d->dragStart.x) <= 4 && abs(p.y - d->dragStart.y) <= 4) return 0;
                     d->dragging = true;
-                    ReleaseCapture();
-                    SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-                    d->pressed = false;
-                    d->savePosition();
+                    if (d->dragZone != 1) {
+                        ReleaseCapture();
+                        SendMessageW(hwnd, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+                        d->pressed = false;
+                        d->savePosition();
+                        return 0;
+                    }
+                }
+                if (d->dragZone == 1) {
+                    // Turning: clockwise (angle growing, y down) scrolls down.
+                    float now = d->angleOf(p);
+                    float delta = now - d->lastAngle;
+                    if (delta > (float)M_PI) delta -= 2 * (float)M_PI;
+                    if (delta < -(float)M_PI) delta += 2 * (float)M_PI;
+                    d->lastAngle = now;
+                    d->turn += delta;
+                    while (d->turn >= Dial::kTurnStep) { d->turn -= Dial::kTurnStep; input::scroll(-3); }
+                    while (d->turn <= -Dial::kTurnStep) { d->turn += Dial::kTurnStep; input::scroll(3); }
                 }
             }
             return 0;
@@ -1052,6 +1077,9 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 d->pressed = true;
                 d->dragging = false;
                 d->dragStart = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                d->dragZone = d->zoneAt(d->dragStart);
+                d->lastAngle = d->angleOf(d->dragStart);
+                d->turn = 0;
                 SetCapture(hwnd);
             }
             return 0;
