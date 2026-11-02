@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import DialKit
 
 /// What the dial does to the app in front: scroll it, jump to the top or
 /// bottom, close its window, type into it. All through CGEvents, which
@@ -11,62 +12,19 @@ enum Input {
         return AXIsProcessTrustedWithOptions(options)
     }
 
-    // MARK: - Scrolling
-    //
-    // A wheel goes straight to the front app's process, so the pointer is
-    // not involved at all. AppKit and Chromium only deliver such an event
-    // when it carries the window's number in field 51 and a window-local
-    // position, set with the private CGEventSetWindowLocation. See CLAUDE.md.
-
-    private struct FrontWindow {
-        var pid: pid_t
-        var id: CGWindowID
-        var bounds: CGRect
-    }
-
-    /// The front app's frontmost ordinary window.
-    private static func frontWindow() -> FrontWindow? {
-        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
-              let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
-                as? [[String: Any]] else { return nil }
-        for window in list {
-            guard window[kCGWindowOwnerPID as String] as? pid_t == pid,
-                  window[kCGWindowLayer as String] as? Int == 0,
-                  let id = window[kCGWindowNumber as String] as? CGWindowID,
-                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: dict), bounds.width > 50, bounds.height > 50
-            else { continue }
-            return FrontWindow(pid: pid, id: id, bounds: bounds)
-        }
-        return nil
-    }
-
-    private static let windowNumberField = CGEventField(rawValue: 51)!
-
-    private typealias SetWindowLocation = @convention(c) (CGEvent, CGPoint) -> Void
-    private static let setWindowLocation: SetWindowLocation? = {
-        _ = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW)
-        let anyImage = UnsafeMutableRawPointer(bitPattern: -2)  // RTLD_DEFAULT
-        return dlsym(anyImage, "CGEventSetWindowLocation").map { unsafeBitCast($0, to: SetWindowLocation.self) }
-    }()
-
     /// Scrolls the app in front by `lines`, at the middle of its window: up
-    /// when positive.
+    /// when positive. The pointer is not involved (`ScrollEvent`).
     static func scroll(lines: Int32) {
-        guard let setWindowLocation else {
+        guard ScrollEvent.isAvailable else {
             Log.write("scroll: this macOS has no CGEventSetWindowLocation")
             return
         }
-        guard let window = frontWindow(),
-              let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
-                                  wheel1: lines, wheel2: 0, wheel3: 0) else {
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+              let target = ScrollEvent.frontWindow(of: pid) else {
             Log.write("scroll: no window in front")
             return
         }
-        event.location = CGPoint(x: window.bounds.midX, y: window.bounds.midY)
-        setWindowLocation(event, CGPoint(x: window.bounds.width / 2, y: window.bounds.height / 2))
-        event.setIntegerValueField(windowNumberField, value: Int64(window.id))
-        event.postToPid(window.pid)
+        ScrollEvent.post(lines: lines, to: target)
     }
 
     static func key(_ code: CGKeyCode, flags: CGEventFlags = []) {

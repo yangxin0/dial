@@ -16,7 +16,7 @@ export CGO_CFLAGS  = -O2 -mmacosx-version-min=13.0
 export CGO_LDFLAGS = -mmacosx-version-min=13.0
 MINGW = x86_64-w64-mingw32-g++
 
-.PHONY: all build test fmt core cli macos settings install run release windows signing-identity icon clean
+.PHONY: all build test test-scroll fmt core cli macos settings install run release windows signing-identity icon clean
 
 all: build
 build: core cli macos settings
@@ -24,6 +24,14 @@ build: core cli macos settings
 test:
 	$(GO) vet ./...
 	$(GO) test ./...
+	cd macos && swift test
+
+# Drags the real ring of a freshly built dial over real apps, on this Mac. It
+# takes over the pointer for about a minute: don't touch the mouse. It needs
+# Accessibility for the terminal and the dial, and Screen Recording for the
+# terminal for the scrollback check. ARGS='--only chrome,native' narrows it.
+test-scroll: run
+	macos/.build/$(CONFIG)/ScrollTest $(ARGS)
 
 fmt:
 	gofmt -w core cmd settings

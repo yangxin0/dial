@@ -35,7 +35,7 @@ Nothing but the audio and the transcript leaves your computer: the audio goes to
 You need Go 1.25+ (the Makefile fetches the toolchain `go.mod` names with `GOTOOLCHAIN=auto`), and on macOS Xcode or its command-line tools. The Settings app links WebKit through cgo.
 
 ```sh
-make test        # the Go core
+make test        # the Go core and the Swift unit tests
 make macos       # dist/Dial.app, with dial-core inside
 make settings    # dist/Dial Settings.app
 make install     # both into /Applications
@@ -53,6 +53,12 @@ make windows     # dist/windows/dial.exe, dial-core.exe, dial-cli.exe, dial-sett
 On Windows itself, build the dial with CMake and Visual Studio or MinGW (`windows/CMakeLists.txt`) and the Go binaries with `go build ./cmd/... ./settings`. Put them in one folder: `dial.exe` starts `dial-core.exe` from its own folder and opens `dial-settings.exe` from the menu.
 
 > The Windows dial compiles cleanly with mingw-w64 but has not yet run on a Windows machine; the macOS dial is the one that has been exercised. Reports welcome.
+
+## Tests
+
+`make test` runs the Go and Swift unit tests, and CI runs them on every push. On Windows CI also starts the real dial and checks that it connects to dial-core, stays up, and takes the core down with it.
+
+`make test-scroll` runs on your Mac, because it needs a screen and Accessibility. It builds and starts the dial, then drags the real ring both ways over a native window, a WebKit page, a separate Chrome with a temporary profile, a full-screen terminal program and terminal scrollback. It fails if an app doesn't scroll the right way by about the right amount, if the pointer leaves the ring's path, if a wheel event passes through the system, or if the app loses the front. It also checks that it's measuring something: an exit of 2 means the run was invalid, for instance because the wrong app was in front or the button wasn't held. It takes over the pointer for about a minute, so don't touch the mouse. `make test-scroll ARGS='--only chrome,native'` runs part of it.
 
 ## Set up
 

@@ -1,4 +1,5 @@
 import AppKit
+import DialKit
 
 /// The floating window: borderless, on every space, never takes the
 /// keyboard focus from the app in front. Dragged anywhere but a click.
@@ -50,12 +51,12 @@ final class DialPanel: NSPanel {
 /// The dial itself: an app ring around a microphone button, with what
 /// was heard underneath.
 final class DialView: NSView {
-    static let width: CGFloat = 200
-    static let height: CGFloat = 240
-    static let outerRadius: CGFloat = 86
-    static let innerRadius: CGFloat = 50
-    static let buttonRadius: CGFloat = 40
-    static let maxSlots = 8
+    static let width = DialMetrics.width
+    static let height = DialMetrics.height
+    static let outerRadius = DialMetrics.outerRadius
+    static let innerRadius = DialMetrics.innerRadius
+    static let buttonRadius = DialMetrics.buttonRadius
+    static let maxSlots = DialMetrics.maxSlots
 
     weak var controller: DialController?
 
@@ -88,8 +89,7 @@ final class DialView: NSView {
     /// The pointer is over the dial: the keys are the dial's.
     private(set) var armed = false { didSet { needsDisplay = true } }
     /// Which part the pointer is over, lit so the eye follows it.
-    enum HoverZone { case none, ring, button }
-    private(set) var hover = HoverZone.none {
+    private(set) var hover = DialZone.none {
         didSet { if hover != oldValue { needsDisplay = true } }
     }
 
@@ -99,15 +99,13 @@ final class DialView: NSView {
     private var dragging = false
     /// A drag that began on the ring turns it, and the turn scrolls the
     /// app in front; one that began on the button moves the dial.
-    private var dragZone = HoverZone.none
-    private var lastAngle: CGFloat = 0
-    private var turn: CGFloat = 0
-    /// Radians of turn per line scrolled: 5 degrees.
-    private static let turnStep = CGFloat.pi / 36
+    private var dragZone = DialZone.none
+    private var turn = TurnCounter(startAngle: 0)
     private var wheelX: CGFloat = 0
     private var wheelY: CGFloat = 0
 
-    private var center: NSPoint { NSPoint(x: bounds.midX, y: Self.height - 8 - Self.outerRadius) }
+    private var center: NSPoint { NSPoint(x: bounds.midX, y: Self.height - DialMetrics.topMargin - Self.outerRadius) }
+    private var geometry: RingGeometry { RingGeometry(center: center) }
 
     override var mouseDownCanMoveWindow: Bool { false }
     override var acceptsFirstResponder: Bool { false }
@@ -121,7 +119,7 @@ final class DialView: NSView {
 
     override func mouseEntered(with event: NSEvent) {
         armed = true
-        hover = zone(at: convert(event.locationInWindow, from: nil))
+        hover = geometry.zone(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -130,14 +128,7 @@ final class DialView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        hover = zone(at: convert(event.locationInWindow, from: nil))
-    }
-
-    private func zone(at point: NSPoint) -> HoverZone {
-        let d = hypot(point.x - center.x, point.y - center.y)
-        if d <= Self.buttonRadius { return .button }
-        if d <= Self.outerRadius { return .ring }
-        return .none
+        hover = geometry.zone(at: convert(event.locationInWindow, from: nil))
     }
 
     private func pulse(_ on: Bool) {
@@ -157,40 +148,12 @@ final class DialView: NSView {
     // MARK: - Geometry and the turn
 
     private var slotCount: Int { min(ring.count, Self.maxSlots) }
-    private var slotAngle: CGFloat { slotCount == 0 ? 0 : 2 * .pi / CGFloat(slotCount) }
-
-    /// Slots sit in the middle of the band the eye sees: between the
-    /// button's edge and the rim, turned by `rotation`.
-    private func slotCenter(_ index: Int, of count: Int) -> NSPoint {
-        let angle = CGFloat.pi / 2 - CGFloat(index) * 2 * .pi / CGFloat(count) + rotation
-        let radius = (Self.outerRadius + Self.buttonRadius) / 2
-        return NSPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
-    }
-
-    private func slot(at point: NSPoint) -> Int? {
-        let d = hypot(point.x - center.x, point.y - center.y)
-        guard d > Self.buttonRadius, d <= Self.outerRadius, slotCount > 0 else { return nil }
-        let angle = atan2(point.y - center.y, point.x - center.x)
-        var turns = (CGFloat.pi / 2 + rotation - angle) / (2 * .pi)  // clockwise from the top
-        turns -= turns.rounded(.down)
-        return Int((turns * CGFloat(slotCount)).rounded()) % slotCount
-    }
-
-    /// The slot nearest the top for the current turn.
-    private var slotAtTop: Int? {
-        guard slotCount > 0 else { return nil }
-        let index = Int((rotation / slotAngle).rounded()) % slotCount
-        return index < 0 ? index + slotCount : index
-    }
 
     /// Aims the turn so the active app sits at the top, the short way
     /// round, and eases there unless a drag has the ring.
     private func retarget() {
         guard let active = activeID, let index = ring.firstIndex(where: { $0.id == active }), index < slotCount else { return }
-        var target = CGFloat(index) * slotAngle
-        while target - rotation > .pi { target -= 2 * .pi }
-        while target - rotation < -.pi { target += 2 * .pi }
-        rotationTarget = target
+        rotationTarget = RingGeometry.rotation(puttingSlot: index, of: slotCount, atTopNear: rotation)
         if !(dragging && dragZone == .ring) { spin() }
     }
 
@@ -217,23 +180,14 @@ final class DialView: NSView {
         retarget()
     }
 
-    private func inButton(_ point: NSPoint) -> Bool {
-        hypot(point.x - center.x, point.y - center.y) <= Self.buttonRadius
-    }
-
     // MARK: - Mouse
-
-    private func angle(of point: NSPoint) -> CGFloat {
-        atan2(point.y - center.y, point.x - center.x)
-    }
 
     override func mouseDown(with event: NSEvent) {
         mouseDownAt = event.locationInWindow
         dragging = false
         let point = convert(event.locationInWindow, from: nil)
-        dragZone = zone(at: point)
-        lastAngle = angle(of: point)
-        turn = 0
+        dragZone = geometry.zone(at: point)
+        turn = TurnCounter(startAngle: geometry.angle(of: point))
         if dragZone == .ring {
             spinTimer?.invalidate()
             spinTimer = nil
@@ -252,24 +206,13 @@ final class DialView: NSView {
         }
         guard dragZone == .ring else { return }
         let point = convert(event.locationInWindow, from: nil)
-        // Right by the centre the angle means nothing.
-        guard hypot(point.x - center.x, point.y - center.y) > 10 else { return }
+        guard geometry.hasMeaningfulAngle(at: point) else { return }
         // The ring follows the pointer round, and the turn scrolls the app in
         // front: clockwise down, as a wheel rolled forward does.
-        let now = angle(of: point)
-        var delta = now - lastAngle
-        if delta > .pi { delta -= 2 * .pi }
-        if delta < -.pi { delta += 2 * .pi }
-        lastAngle = now
+        let (delta, lines) = turn.move(to: geometry.angle(of: point))
         rotation += delta
-        turn += delta
-        while turn >= Self.turnStep {
-            turn -= Self.turnStep
-            Input.scroll(lines: 1)
-        }
-        while turn <= -Self.turnStep {
-            turn += Self.turnStep
-            Input.scroll(lines: -1)
+        for _ in 0..<abs(lines) {
+            Input.scroll(lines: lines > 0 ? 1 : -1)
         }
         needsDisplay = true
     }
@@ -284,9 +227,9 @@ final class DialView: NSView {
             return
         }
         let point = convert(event.locationInWindow, from: nil)
-        if inButton(point) {
+        if geometry.zone(at: point) == .button {
             controller?.toggleListening()
-        } else if let index = slot(at: point), index < ring.count {
+        } else if let index = geometry.slot(at: point, count: slotCount, rotation: rotation), index < ring.count {
             controller?.pick(ring[index].id)
         }
     }
@@ -339,7 +282,7 @@ final class DialView: NSView {
         let count = min(ring.count, Self.maxSlots)
         for index in 0..<count {
             let app = ring[index]
-            let at = slotCenter(index, of: count)
+            let at = geometry.slotCenter(index, of: count, rotation: rotation)
             let size: CGFloat = app.id == activeID ? 36 : 30
             let rect = NSRect(x: at.x - size / 2, y: at.y - size / 2, width: size, height: size)
             if let icon = app.icon {

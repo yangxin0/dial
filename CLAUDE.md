@@ -11,9 +11,21 @@ similar marker or trailer.
 
 ## Development
 
-- `make test` runs `go vet` and the Go tests; `make macos settings`
-  builds the two app bundles into `dist/`; `make windows` cross-compiles
-  the Windows dial with mingw-w64.
+- `make test` runs `go vet`, the Go tests and the Swift unit tests;
+  `make macos settings` builds the two app bundles into `dist/`;
+  `make windows` cross-compiles the Windows dial with mingw-w64.
+- `make test-scroll` drags the real ring of a fresh build over real apps,
+  and takes over the pointer for about a minute, so CI can't run it. Run it
+  before saying a change to the pointer, the ring or scrolling works. Exit 2
+  means the run was invalid and proved nothing.
+- A test proves nothing until it has failed on broken code. When changing
+  `macos/Sources/ScrollTest`, run it against an old broken build (b36839c or
+  f1fcf8d, built in a `git worktree`, which must fail) and with
+  `SCROLLTEST_SABOTAGE=front`, `button` and `old`, which must exit 2, 2 and 1.
+  The first version sent absolute positions and passed b36839c, because each
+  event put the pointer back on the path. A hand moves relative to the pointer.
+- The ring's maths and the wheel event live in `macos/Sources/DialKit`, with no
+  UI, so they can be tested. Keep logic there, not in the views.
 - The native dials (`macos/`, `windows/`) and `dial-core` meet only in
   `core/protocol/protocol.go`: a change to a message changes both sides.
 - `core/` must stay free of platform UI code so it builds for both
@@ -25,6 +37,7 @@ similar marker or trailer.
   2026-11-02 with the button held, as in a ring drag: a native window and
   Chrome scrolled and the pointer stayed put. Without those two values
   (fields 91 and 92 don't help) the event is dropped. Don't post the wheel
-  into the system: it moves the real pointer to the event's location. The
+  into the system: it moves the real pointer to the event's location, and
+  `make test-scroll` fails if one passes through there during a drag. The
   recipe comes from [Orca](https://github.com/stablyai/orca/pull/36005) and
   [2ndscreen](https://github.com/szrunworld/2ndscreen/pull/4).

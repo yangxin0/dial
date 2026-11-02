@@ -37,7 +37,9 @@ jobs:
       - name: Test
         run: go test ./core/...
 
-  # The Swift dial, Dial Settings, and both bundles.
+  # The Swift unit tests, the Swift dial, Dial Settings, and both bundles.
+  # `make test-scroll` isn't here: it needs a screen, Accessibility and a real
+  # pointer, so it runs on a Mac before a change to the pointer or scrolling.
   macos:
     runs-on: macos-latest
     steps:
@@ -91,3 +93,8 @@ jobs:
           name: dial-windows-x64
           path: dist/windows/*.exe
           if-no-files-found: error
+
+      # Actually runs the dial: starts, connects, stays up, takes the core with it.
+      - name: Smoke test
+        shell: pwsh
+        run: ./windows/smoke.ps1
