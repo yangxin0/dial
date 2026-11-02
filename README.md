@@ -74,7 +74,7 @@ The config is `~/.config/dial/config.json` (`%AppData%\dial\config.json` on Wind
 | Hover, **Space** / **Esc** | Listen / cancel |
 | Wheel over the dial | Vertical scrolls the app in front; horizontal turns the ring |
 | Click an app on the ring | Bring it to the front |
-| Drag around the ring | Turn it: the app that lands at the top is brought to the front |
+| Drag around the ring | Turn it: scrolls the app in front like the wheel, clockwise down; it springs back when let go |
 | Drag the centre | Move the dial |
 | Right-click (Windows) or the menu-bar icon (macOS) | Listen, Settings, Quit |
 

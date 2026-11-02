@@ -569,10 +569,11 @@ struct Dial {
     float pulse = 0;
     POINT dragStart = {};
     bool dragging = false, pressed = false;
-    // A drag that began on the ring turns it; one that began on the
-    // button moves the dial.
+    // A drag that began on the ring turns it, and the turn scrolls the
+    // app in front; one that began on the button moves the dial.
     int dragZone = 0;
-    float lastAngle = 0;
+    float lastAngle = 0, turn = 0;
+    static constexpr float kTurnStep = (float)M_PI / 12;
     // The ring's turn, in radians (counterclockwise positive): slot 0
     // sits at the top plus this. It follows a drag, and eases to put the
     // active app at the top.
@@ -839,15 +840,9 @@ struct Dial {
         redraw();
     }
 
-    // A drag let go: the app nearest the top is the one picked, and the
-    // ring settles on it.
-    void settle() {
-        int n = slotCount();
-        if (n == 0) return;
-        int index = ((int)roundf(rotation / slotAngle()) % n + n) % n;
-        if (ring[index] != activeID) pick(ring[index]);
-        else retarget();
-    }
+    // A drag let go: the ring springs back home, the active app at the
+    // top.
+    void settle() { retarget(); }
 
     int zoneAt(POINT p) const {
         POINT c = center();
@@ -1106,6 +1101,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     if (delta < -(float)M_PI) delta += 2 * (float)M_PI;
                     d->lastAngle = now;
                     d->rotation += delta;
+                    // Every 15° of turn scrolls the app in front: clockwise down.
+                    d->turn += delta;
+                    while (d->turn >= Dial::kTurnStep) { d->turn -= Dial::kTurnStep; input::scroll(3); }
+                    while (d->turn <= -Dial::kTurnStep) { d->turn += Dial::kTurnStep; input::scroll(-3); }
                     d->redraw();
                 }
             }
@@ -1120,6 +1119,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 d->dragStart = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
                 d->dragZone = d->zoneAt(d->dragStart);
                 d->lastAngle = d->angleOf(d->dragStart);
+                d->turn = 0;
                 if (d->dragZone == 1 && d->spinning) { KillTimer(hwnd, 5); d->spinning = false; }
                 SetCapture(hwnd);
             }
