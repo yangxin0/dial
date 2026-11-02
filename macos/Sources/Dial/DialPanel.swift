@@ -176,6 +176,7 @@ final class DialView: NSView {
         dragZone = zone(at: point)
         lastAngle = angle(of: point)
         turn = 0
+        Log.write("mouse down in \(dragZone)")
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -183,6 +184,7 @@ final class DialView: NSView {
         if !dragging {
             guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
             dragging = true
+            Log.write("drag began in \(dragZone)")
             if dragZone != .ring {
                 window?.performDrag(with: event)
                 return
@@ -218,6 +220,10 @@ final class DialView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if let cg = event.cgEvent, cg.getIntegerValueField(.eventSourceUserData) == Input.scrollTag {
+            Log.write("own scroll came back to the dial; dropped")
+            return
+        }
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         wheelX += event.scrollingDeltaX * scale
         wheelY += event.scrollingDeltaY * scale

@@ -30,14 +30,26 @@ enum Input {
         return nil
     }
 
-    /// Scrolls the app in front by `lines`: up when positive.
+    /// Marks the dial's own scroll events, so one that comes back to the
+    /// dial is known and dropped.
+    static let scrollTag: Int64 = 0xD1A1
+
+    /// Scrolls the app in front by `lines`: up when positive. The event
+    /// goes to the app's process with the window's centre as its place:
+    /// posted into the system instead, a scroll follows the cursor, which
+    /// is over the dial whenever the dial is being used.
     static func scroll(lines: Int32) {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                   wheel1: lines, wheel2: 0, wheel3: 0) else { return }
-        if let center = frontmostWindowCenter() {
+        event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
+        if let app = NSWorkspace.shared.frontmostApplication, let center = frontmostWindowCenter() {
             event.location = center
+            event.postToPid(app.processIdentifier)
+            Log.write("scroll \(lines) → \(app.localizedName ?? "?") (\(app.processIdentifier)) at \(Int(center.x)),\(Int(center.y))")
+        } else {
+            event.post(tap: .cghidEventTap)
+            Log.write("scroll \(lines) → system (no window in front)")
         }
-        event.post(tap: .cghidEventTap)
     }
 
     static func key(_ code: CGKeyCode, flags: CGEventFlags = []) {

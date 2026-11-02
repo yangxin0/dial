@@ -25,6 +25,7 @@ final class DialController {
     private var statusItem: NSStatusItem?
 
     func start() {
+        Log.write("dial \(dialVersion) starting")
         panel.view.controller = self
         core.onMessage = { [weak self] message in self?.handle(message) }
         core.onConnected = { [weak self] in
@@ -278,6 +279,7 @@ final class DialController {
         case "result":
             act(on: message)
         case "error":
+            Log.write("core error: \(message.message ?? "")")
             mic.stop()
             pendingAudio = []
             setPhase(.idle)
@@ -288,6 +290,7 @@ final class DialController {
     }
 
     private func act(on result: Message) {
+        Log.write("result: \(result.intent ?? "?") \(result.action ?? "") \(result.appName ?? "") «\(result.transcript ?? "")»")
         let transcript = result.transcript ?? ""
         if result.intent != "command" {
             let text = result.text ?? transcript
