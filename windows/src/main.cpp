@@ -569,11 +569,15 @@ struct Dial {
     float pulse = 0;
     POINT dragStart = {};
     bool dragging = false, pressed = false;
-    // A drag that began on the ring turns it and scrolls the app in
-    // front; one that began on the button moves the dial.
+    // A drag that began on the ring turns it; one that began on the
+    // button moves the dial.
     int dragZone = 0;
-    float lastAngle = 0, turn = 0;
-    static constexpr float kTurnStep = (float)M_PI / 12;
+    float lastAngle = 0;
+    // The ring's turn, in radians (counterclockwise positive): slot 0
+    // sits at the top plus this. It follows a drag, and eases to put the
+    // active app at the top.
+    float rotation = 0, rotationTarget = 0;
+    bool spinning = false;
     int wheelX = 0, wheelY = 0;
     bool dark = false;
 
@@ -601,6 +605,7 @@ struct Dial {
         } else if (type == "ring") {
             ring.clear();
             for (auto& id : m["ring"].items()) ring.push_back(id.str());
+            retarget();
             redraw();
         } else if (type == "state") {
             std::string p = m["phase"].str();
@@ -661,6 +666,7 @@ struct Dial {
         apps.refresh();
         core.send(json::Object{{"type", "apps"}, {"apps", apps.records()}});
         for (auto& a : apps.running) if (a.active) activeID = a.id;
+        retarget();
         redraw();
     }
 
@@ -672,6 +678,7 @@ struct Dial {
         apps.activate(id);
         activeID = id;
         learned(id);
+        retarget();
         redraw();
     }
 
@@ -779,7 +786,7 @@ struct Dial {
     // Slots sit in the middle of the band the eye sees: between the
     // button's edge and the rim.
     PointF slotCenter(int index, int count) const {
-        float angle = (float)M_PI / 2 - (float)index * 2 * (float)M_PI / (float)count;
+        float angle = (float)M_PI / 2 - (float)index * 2 * (float)M_PI / (float)count + rotation;
         float radius = (kOuter + kButton) / 2;
         POINT c = center();
         return PointF(c.x + radius * cosf(angle), c.y - radius * sinf(angle));
@@ -791,10 +798,10 @@ struct Dial {
         float d = sqrtf(dx * dx + dy * dy);
         if (d <= kButton || d > kOuter || ring.empty()) return -1;
         float angle = atan2f(dy, dx);
-        float turn = ((float)M_PI / 2 - angle) / (2 * (float)M_PI);
-        while (turn < 0) turn += 1;
-        int n = (int)std::min<size_t>(ring.size(), kMaxSlots);
-        return (int)floorf(turn * n + 0.5f) % n;
+        float turn = ((float)M_PI / 2 + rotation - angle) / (2 * (float)M_PI);
+        turn -= floorf(turn);
+        int n = slotCount();
+        return (int)roundf(turn * n) % n;
     }
 
     bool inButton(POINT p) const {
@@ -803,9 +810,43 @@ struct Dial {
         return sqrtf(dx * dx + dy * dy) <= kButton;
     }
 
+    // The angle of a point, counterclockwise from the right (y up).
     float angleOf(POINT p) const {
         POINT c = center();
-        return atan2f((float)(p.y - c.y), (float)(p.x - c.x));
+        return atan2f((float)(c.y - p.y), (float)(p.x - c.x));
+    }
+
+    int slotCount() const { return (int)min<size_t>(ring.size(), kMaxSlots); }
+    float slotAngle() const { int n = slotCount(); return n ? 2 * (float)M_PI / (float)n : 0; }
+
+    // Aims the turn so the active app sits at the top, the short way
+    // round, and eases there unless a drag has the ring.
+    void retarget() {
+        int n = slotCount(), index = -1;
+        for (int i = 0; i < n; i++) if (ring[i] == activeID) index = i;
+        if (index < 0) return;
+        float target = (float)index * slotAngle();
+        while (target - rotation > (float)M_PI) target -= 2 * (float)M_PI;
+        while (target - rotation < -(float)M_PI) target += 2 * (float)M_PI;
+        rotationTarget = target;
+        if (!(dragging && dragZone == 1) && !spinning) { spinning = true; SetTimer(hwnd, 5, 16, nullptr); }
+    }
+
+    void spinStep() {
+        float diff = rotationTarget - rotation;
+        if (fabsf(diff) < 0.002f) { rotation = rotationTarget; KillTimer(hwnd, 5); spinning = false; }
+        else rotation += diff * 0.22f;
+        redraw();
+    }
+
+    // A drag let go: the app nearest the top is the one picked, and the
+    // ring settles on it.
+    void settle() {
+        int n = slotCount();
+        if (n == 0) return;
+        int index = ((int)roundf(rotation / slotAngle()) % n + n) % n;
+        if (ring[index] != activeID) pick(ring[index]);
+        else retarget();
     }
 
     int zoneAt(POINT p) const {
@@ -1031,6 +1072,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             else if (wparam == 2) { KillTimer(hwnd, 2); d->core.connect(); }
             else if (wparam == 3) { KillTimer(hwnd, 3); d->hint.clear(); d->redraw(); }
             else if (wparam == 4) { d->sendApps(); }
+            else if (wparam == 5) { d->spinStep(); }
             return 0;
         case WM_MOUSEMOVE:
             if (d && !d->tracking) {
@@ -1057,15 +1099,14 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     }
                 }
                 if (d->dragZone == 1) {
-                    // Turning: clockwise (angle growing, y down) scrolls down.
+                    // The ring follows the pointer round.
                     float now = d->angleOf(p);
                     float delta = now - d->lastAngle;
                     if (delta > (float)M_PI) delta -= 2 * (float)M_PI;
                     if (delta < -(float)M_PI) delta += 2 * (float)M_PI;
                     d->lastAngle = now;
-                    d->turn += delta;
-                    while (d->turn >= Dial::kTurnStep) { d->turn -= Dial::kTurnStep; input::scroll(-3); }
-                    while (d->turn <= -Dial::kTurnStep) { d->turn += Dial::kTurnStep; input::scroll(3); }
+                    d->rotation += delta;
+                    d->redraw();
                 }
             }
             return 0;
@@ -1079,7 +1120,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 d->dragStart = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
                 d->dragZone = d->zoneAt(d->dragStart);
                 d->lastAngle = d->angleOf(d->dragStart);
-                d->turn = 0;
+                if (d->dragZone == 1 && d->spinning) { KillTimer(hwnd, 5); d->spinning = false; }
                 SetCapture(hwnd);
             }
             return 0;
@@ -1088,6 +1129,10 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 ReleaseCapture();
                 d->pressed = false;
                 POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                if (d->dragging) {
+                    if (d->dragZone == 1) { d->dragging = false; d->settle(); }
+                    return 0;
+                }
                 if (d->inButton(p)) d->toggleListening();
                 else {
                     int slot = d->slotAt(p);
