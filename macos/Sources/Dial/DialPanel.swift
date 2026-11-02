@@ -129,21 +129,35 @@ final class DialView: NSView {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        if isOurs(event) { return }
         armed = true
+        noteHome(event)
         hover = zone(at: convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
+        if isOurs(event) { return }
         armed = false
         hover = .none
+        Input.home = nil
     }
 
     private func isOurs(_ event: NSEvent) -> Bool {
         event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Input.scrollTag
     }
 
+    /// Remembers where the pointer is over the dial, for the cursor to
+    /// come back to after a scroll.
+    private func noteHome(_ event: NSEvent) {
+        guard let window, !isOurs(event) else { return }
+        let p = window.convertPoint(toScreen: event.locationInWindow)
+        let height = NSScreen.screens.first?.frame.height ?? 0
+        Input.home = CGPoint(x: p.x, y: height - p.y)
+    }
+
     override func mouseMoved(with event: NSEvent) {
         if isOurs(event) { return }
+        noteHome(event)
         hover = zone(at: convert(event.locationInWindow, from: nil))
     }
 
@@ -242,6 +256,7 @@ final class DialView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        noteHome(event)
         mouseDownAt = event.locationInWindow
         dragging = false
         let point = convert(event.locationInWindow, from: nil)
@@ -257,6 +272,7 @@ final class DialView: NSView {
     override func mouseDragged(with event: NSEvent) {
         // The cursor's return after a scroll is the dial's own doing.
         if isOurs(event) { return }
+        noteHome(event)
         guard let start = mouseDownAt else { return }
         if !dragging {
             guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
@@ -306,10 +322,11 @@ final class DialView: NSView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if let cg = event.cgEvent, cg.getIntegerValueField(.eventSourceUserData) == Input.scrollTag {
+        if isOurs(event) {
             Log.write("own scroll came back to the dial; dropped")
             return
         }
+        noteHome(event)
         let scale: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
         wheelX += event.scrollingDeltaX * scale
         wheelY += event.scrollingDeltaY * scale

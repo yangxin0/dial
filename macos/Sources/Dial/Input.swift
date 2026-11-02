@@ -55,6 +55,12 @@ enum Input {
         return CGPoint(x: m.x, y: height - m.y)
     }
 
+    /// Where the pointer last was over the dial, origin at the top left:
+    /// where the cursor goes back to after a scroll. The live cursor
+    /// position can't be used for that, since in a burst of scrolls it
+    /// already reflects the hop to the window.
+    static var home: CGPoint?
+
     /// Scrolls the app in front by `lines`: up when positive.
     ///
     /// A wheel event posted to a process is never delivered to a view, and
@@ -67,7 +73,7 @@ enum Input {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1,
                                   wheel1: lines, wheel2: 0, wheel3: 0) else { return }
         event.setIntegerValueField(.eventSourceUserData, value: scrollTag)
-        let back = cursor
+        let back = home ?? cursor
         guard let window = frontWindow() else {
             event.post(tap: .cghidEventTap)
             Log.write("scroll \(lines) → under the cursor (no window in front)")
