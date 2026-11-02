@@ -98,17 +98,19 @@ windows:
 	GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o dist/windows/dial-cli.exe ./cmd/dial-cli
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 $(GO) build -tags production -trimpath -ldflags "$(LDFLAGS) -H windowsgui" -o dist/windows/dial-settings.exe ./settings
 
-# The app icon, drawn by Scripts/make-icon.py; what it makes is kept in
-# the tree, so a build needs neither Python nor iconutil.
+# The app icon, from macos/Resources/icons/AppIcon.svg. What it makes is kept in
+# the tree, so a build needs neither rsvg-convert (brew install librsvg) nor
+# iconutil. The menu bar icon is drawn in code: macos/Sources/Dial/MenuBarIcon.swift.
+ICON_SVG = macos/Resources/icons/AppIcon.svg
 icon:
 	rm -rf .build/AppIcon.iconset && mkdir -p .build/AppIcon.iconset
 	for s in 16 32 128 256 512; do \
-		python3 -I Scripts/make-icon.py .build/AppIcon.iconset/icon_$${s}x$${s}.png $$s && \
-		python3 -I Scripts/make-icon.py .build/AppIcon.iconset/icon_$${s}x$${s}@2x.png $$((s * 2)) || exit 1; \
+		rsvg-convert -w $$s -h $$s $(ICON_SVG) -o .build/AppIcon.iconset/icon_$${s}x$${s}.png && \
+		rsvg-convert -w $$((s * 2)) -h $$((s * 2)) $(ICON_SVG) -o .build/AppIcon.iconset/icon_$${s}x$${s}@2x.png || exit 1; \
 	done
 	iconutil -c icns .build/AppIcon.iconset -o macos/Resources/AppIcon.icns
 	cp macos/Resources/AppIcon.icns settings/build/darwin/AppIcon.icns
-	python3 -I Scripts/make-icon.py settings/assets/icon.png 256
+	rsvg-convert -w 256 -h 256 $(ICON_SVG) -o settings/assets/icon.png
 
 # A self-signed identity to sign with instead of ad hoc, so the
 # Accessibility and Microphone grants survive rebuilds.

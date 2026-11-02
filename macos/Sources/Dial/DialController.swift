@@ -345,9 +345,7 @@ final class DialController {
     private func makeStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
-            button.image = NSImage(systemSymbolName: "dial.medium", accessibilityDescription: "Dial")
-                ?? NSImage(systemSymbolName: "circle.circle", accessibilityDescription: "Dial")
-            button.image?.isTemplate = true
+            button.image = MenuBarIcon.make()
         }
         let menu = NSMenu()
         menu.addItem(withTitle: "Listen", action: #selector(menuListen), keyEquivalent: "").target = self
