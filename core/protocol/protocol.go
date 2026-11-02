@@ -65,7 +65,17 @@ const (
 	State = "state"
 	// Error carries a Message for the user; the recording is over.
 	Error = "error"
+	// Theme says how the dial should look, on connecting and when it changes.
+	Theme = "theme"
 )
+
+// ThemeValues is how the dial looks.
+type ThemeValues struct {
+	// Size is 1 for the normal size.
+	Size float64 `json:"size"`
+	// Transparency is 0 for solid.
+	Transparency float64 `json:"transparency"`
+}
 
 // Phases of a State message.
 const (
@@ -102,6 +112,8 @@ type Message struct {
 	Confidence float64 `json:"confidence,omitempty"`
 	// Source is what decided: "jev" or "rules".
 	Source string `json:"source,omitempty"`
+
+	Theme *ThemeValues `json:"theme,omitempty"`
 
 	Phase   string `json:"phase,omitempty"`
 	Message string `json:"message,omitempty"`

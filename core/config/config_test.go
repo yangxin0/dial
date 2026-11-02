@@ -36,6 +36,33 @@ func TestLoadDefaultsAndTemplate(t *testing.T) {
 	}
 }
 
+func TestThemeIsKeptInRange(t *testing.T) {
+	cases := []struct {
+		file               string
+		size, transparency float64
+	}{
+		{`{}`, 1, 0},
+		{`{"theme":{}}`, 1, 0},
+		{`{"theme":{"size":1.5,"transparency":0.25}}`, 1.5, 0.25},
+		{`{"theme":{"transparency":0.25}}`, 1, 0.25},
+		{`{"theme":{"size":0.01,"transparency":-3}}`, MinThemeSize, 0},
+		{`{"theme":{"size":50,"transparency":5}}`, MaxThemeSize, MaxThemeTransparency},
+		{`{"theme":{"size":-2}}`, 1, 0},
+		{`{"theme":"nonsense"}`, 1, 0},
+	}
+	for _, c := range cases {
+		path := filepath.Join(t.TempDir(), "config.json")
+		os.WriteFile(path, []byte(c.file), 0o600)
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("%s: %v", c.file, err)
+		}
+		if got.Theme.Size != c.size || got.Theme.Transparency != c.transparency {
+			t.Errorf("%s: %+v, want size %v transparency %v", c.file, got.Theme, c.size, c.transparency)
+		}
+	}
+}
+
 func TestLoadLenient(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	os.WriteFile(path, []byte(`{"port":"nope","commandThreshold":7,"jev":{"apiKey":"k"},"voice":{"engines":[{"name":"a","apiKey":"x"},{"name":"b","apiKey":"y"}],"engine":"b"}}`), 0o600)

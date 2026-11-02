@@ -60,6 +60,37 @@ $hello = Ask-Core
 if (-not ($hello -and $hello.dial.connected)) { Fail "the dial dropped its connection" }
 Write-Host "PASS the dial is still up and connected after 8 seconds"
 
+# A theme in the config reaches the dial, which resizes itself.
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class DialWindow {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindow(string cls, string title);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+    public static int Width() {
+        Rect r;
+        var hwnd = FindWindow("DialWindow", null);
+        return hwnd != IntPtr.Zero && GetWindowRect(hwnd, out r) ? r.Right - r.Left : -1;
+    }
+}
+'@
+$normal = [DialWindow]::Width()
+if ($normal -le 0) { Fail "can't find the dial's window" }
+$configPath = Join-Path $env:DIAL_CONFIG_DIR "config.json"
+$config = Get-Content $configPath -Raw | ConvertFrom-Json
+$config.theme = [pscustomobject]@{ size = 1.5; transparency = 0.25 }
+$config | ConvertTo-Json -Depth 8 | Set-Content $configPath -Encoding utf8
+$deadline = (Get-Date).AddSeconds(10)
+$want = [int][math]::Round($normal * 1.5)
+while ((Get-Date) -lt $deadline) {
+    if ([DialWindow]::Width() -eq $want) { break }
+    Start-Sleep -Milliseconds 200
+}
+if ([DialWindow]::Width() -ne $want) { Fail "the dial is $([DialWindow]::Width()) wide, not $want, after a theme of 1.5" }
+if ($dial.HasExited) { Fail "dial.exe exited with $($dial.ExitCode) on a theme change" }
+Write-Host "PASS a theme of 1.5 took the dial from $normal to $want wide"
+
 # The core watches its parent: killing the dial must not leave it behind.
 Stop-Process -Id $dial.Id -Force
 $deadline = (Get-Date).AddSeconds(15)

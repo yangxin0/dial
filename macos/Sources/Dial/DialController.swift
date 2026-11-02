@@ -250,6 +250,8 @@ final class DialController {
             } else {
                 show(hint: "Ready.")
             }
+        case "theme":
+            if let theme = message.theme { panel.apply(theme) }
         case "ring":
             ring = message.ring ?? []
             refreshRing()

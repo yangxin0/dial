@@ -1,3 +1,4 @@
+import DialKit
 import Foundation
 
 /// One message of the dial ↔ core protocol: JSON, one object per line.
@@ -21,6 +22,7 @@ struct Message: Codable {
     var source: String?
     var phase: String?
     var message: String?
+    var theme: DialTheme?
 
     init(type: String) {
         self.type = type

@@ -19,8 +19,39 @@ final class DialPanel: NSPanel {
         contentView = view
         restorePosition()
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: self, queue: .main) { [weak self] _ in
-            self?.savePosition()
+            self?.windowMoved()
         }
+    }
+
+    /// Where the person put the ring's centre. A big dial near an edge is pushed
+    /// back on screen, and this is where it returns to when it shrinks again.
+    private var anchor = NSPoint.zero
+    private var theme = DialTheme()
+    /// The frame `apply` chose, so that move isn't taken for the person's.
+    private var appliedFrame = NSRect.zero
+
+    /// Changes the size and transparency. The view keeps its own coordinates
+    /// and only its bounds scale, so its drawing and its events need no change.
+    func apply(_ theme: DialTheme) {
+        self.theme = theme
+        layOut()
+        alphaValue = theme.alpha
+    }
+
+    private func layOut() {
+        let visible = (NSScreen.screens.first { $0.frame.contains(anchor) } ?? screen ?? NSScreen.main)?.visibleFrame
+            ?? NSRect(origin: .zero, size: frame.size)
+        appliedFrame = theme.frame(ringCenter: anchor, within: visible)
+        setFrame(appliedFrame, display: false)
+        view.setBoundsSize(NSSize(width: DialMetrics.width, height: DialMetrics.height))
+        view.needsDisplay = true
+    }
+
+    private func windowMoved() {
+        guard frame != appliedFrame else { return }
+        anchor = DialTheme.ringCenter(ofFrame: frame)
+        appliedFrame = frame
+        savePosition()
     }
 
     override var canBecomeKey: Bool { false }
@@ -32,19 +63,26 @@ final class DialPanel: NSPanel {
 
     private func restorePosition() {
         let defaults = UserDefaults.standard
-        if let x = defaults.object(forKey: "dial.x") as? Double, let y = defaults.object(forKey: "dial.y") as? Double,
-           NSScreen.screens.contains(where: { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(NSPoint(x: x, y: y)) }) {
-            setFrameOrigin(NSPoint(x: x, y: y))
-            return
+        func onScreen(_ point: NSPoint) -> Bool {
+            NSScreen.screens.contains { $0.visibleFrame.insetBy(dx: -40, dy: -40).contains(point) }
         }
-        guard let screen = NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        setFrameOrigin(NSPoint(x: visible.maxX - frame.width - 24, y: visible.minY + 24))
+        if let x = defaults.object(forKey: "dial.cx") as? Double, let y = defaults.object(forKey: "dial.cy") as? Double,
+           onScreen(NSPoint(x: x, y: y)) {
+            anchor = NSPoint(x: x, y: y)
+        } else if let x = defaults.object(forKey: "dial.x") as? Double, let y = defaults.object(forKey: "dial.y") as? Double,
+                  onScreen(NSPoint(x: x, y: y)) {
+            // Saved by an earlier version, as the normal-sized window's corner.
+            anchor = DialTheme.ringCenter(ofFrame: NSRect(x: x, y: y, width: DialMetrics.width, height: DialMetrics.height))
+        } else if let visible = NSScreen.main?.visibleFrame {
+            anchor = DialTheme.ringCenter(ofFrame: NSRect(x: visible.maxX - DialMetrics.width - 24, y: visible.minY + 24,
+                                                          width: DialMetrics.width, height: DialMetrics.height))
+        }
+        layOut()
     }
 
     private func savePosition() {
-        UserDefaults.standard.set(Double(frame.origin.x), forKey: "dial.x")
-        UserDefaults.standard.set(Double(frame.origin.y), forKey: "dial.y")
+        UserDefaults.standard.set(Double(anchor.x), forKey: "dial.cx")
+        UserDefaults.standard.set(Double(anchor.y), forKey: "dial.cy")
     }
 }
 

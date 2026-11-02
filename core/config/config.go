@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,7 +54,16 @@ type Config struct {
 	AppThreshold float64 `json:"appThreshold"`
 	Port         int     `json:"port"`
 	Ring         Ring    `json:"ring"`
+	// Theme is how the dial looks; a change applies at once.
+	Theme protocol.ThemeValues `json:"theme"`
 }
+
+// The range of a theme's values.
+const (
+	MinThemeSize         = 0.5
+	MaxThemeSize         = 3.0
+	MaxThemeTransparency = 0.8
+)
 
 // Default is a config with nothing set up.
 func Default() *Config {
@@ -63,6 +73,7 @@ func Default() *Config {
 		AppThreshold:     dispatch.DefaultAppThreshold,
 		Port:             protocol.DefaultPort,
 		Ring:             Ring{Size: ring.DefaultSize, HalfLifeDays: ring.DefaultHalfLifeDays},
+		Theme:            protocol.ThemeValues{Size: 1},
 	}
 }
 
@@ -79,7 +90,8 @@ const Template = `{
   "commandThreshold": 0.6,
   "appThreshold": 0.5,
   "port": 47831,
-  "ring": {"size": 8, "halfLifeDays": 14}
+  "ring": {"size": 8, "halfLifeDays": 14},
+  "theme": {"size": 1, "transparency": 0}
 }
 `
 
@@ -142,6 +154,12 @@ func Load(path string) (*Config, error) {
 	field("appThreshold", &c.AppThreshold)
 	field("port", &c.Port)
 	field("ring", &c.Ring)
+	field("theme", &c.Theme)
+	if c.Theme.Size <= 0 {
+		c.Theme.Size = 1
+	}
+	c.Theme.Size = math.Min(math.Max(c.Theme.Size, MinThemeSize), MaxThemeSize)
+	c.Theme.Transparency = math.Min(math.Max(c.Theme.Transparency, 0), MaxThemeTransparency)
 	if c.Port <= 0 || c.Port > 65535 {
 		c.Port = protocol.DefaultPort
 	}

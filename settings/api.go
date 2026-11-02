@@ -58,7 +58,7 @@ func (h *host) handler(pages fs.FS) http.Handler {
 
 // editableKeys are the top-level keys the pages may set.
 var editableKeys = map[string]bool{
-	"voice": true, "jev": true, "commandThreshold": true, "appThreshold": true, "port": true, "ring": true,
+	"voice": true, "jev": true, "commandThreshold": true, "appThreshold": true, "port": true, "ring": true, "theme": true,
 }
 
 func (h *host) call(ctx context.Context, op string, args object) (any, error) {

@@ -44,6 +44,8 @@ type Options struct {
 	// Decide decides; the config's Decider by default.
 	Decide func(ctx context.Context, c *config.Config, transcript string, apps []protocol.App) dispatch.Result
 	Log    *log.Logger
+	// ThemePoll is how often the config is checked for a new theme.
+	ThemePoll time.Duration
 }
 
 // Server accepts dials.
@@ -117,6 +119,9 @@ func New(o Options) *Server {
 			return c.Decider().Decide(ctx, transcript, apps)
 		}
 	}
+	if o.ThemePoll <= 0 {
+		o.ThemePoll = 400 * time.Millisecond
+	}
 	if o.Log == nil {
 		o.Log = log.Default()
 	}
@@ -176,6 +181,8 @@ type session struct {
 	mu        sync.Mutex
 	apps      []protocol.App
 	recording *recording
+
+	watchingTheme bool
 }
 
 // recording is one in progress.
@@ -248,6 +255,10 @@ func (sess *session) handle(m protocol.Message) {
 		c := sess.config()
 		sess.send(protocol.Message{Type: protocol.Hello, Version: sess.s.o.Version, Ready: c.Ready(), Dial: sess.s.dialStatus()})
 		sess.sendState(protocol.PhaseIdle)
+		if isDial(m.Platform) && !sess.watchingTheme {
+			sess.watchingTheme = true
+			go sess.watchTheme(c.Theme)
+		}
 	case protocol.Status:
 		if sess.s.isDialSession(sess) {
 			sess.s.setDial(sess, "", m.Ready)
@@ -295,6 +306,31 @@ func (sess *session) handle(m protocol.Message) {
 		sess.sendState(protocol.PhaseIdle)
 	default:
 		sess.send(protocol.Message{Type: protocol.Error, Message: "unknown message type " + m.Type})
+	}
+}
+
+// watchTheme tells the dial how to look now and whenever that changes, so a
+// slider in Settings, or an edit to the file, shows at once.
+func (sess *session) watchTheme(theme protocol.ThemeValues) {
+	send := func() {
+		value := theme
+		sess.send(protocol.Message{Type: protocol.Theme, Theme: &value})
+	}
+	send()
+	ticker := time.NewTicker(sess.s.o.ThemePoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sess.ctx.Done():
+			return
+		case <-ticker.C:
+			c, err := sess.s.o.Config()
+			if err != nil || c == nil || c.Theme == theme {
+				continue
+			}
+			theme = c.Theme
+			send()
+		}
 	}
 }
 

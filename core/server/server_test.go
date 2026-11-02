@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -225,6 +226,62 @@ func TestDialStatusReachesSettings(t *testing.T) {
 	settings.send(protocol.Message{Type: protocol.Hello, Platform: "settings"})
 	if hello = settings.expect(protocol.Hello); hello.Dial.Connected {
 		t.Fatalf("dial still connected: %+v", hello.Dial)
+	}
+}
+
+func TestThemeReachesTheDialAndFollowsTheConfig(t *testing.T) {
+	var mu sync.Mutex
+	cfg := config.Default()
+	r, _ := ring.Load("")
+	s := New(Options{
+		Config: func() (*config.Config, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			c := *cfg
+			return &c, nil
+		},
+		Ring:      r,
+		ThemePoll: 10 * time.Millisecond,
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go s.Serve(ctx, ln)
+	dial := func(platform string) client {
+		conn, err := net.Dial("tcp", ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		c := client{conn: conn, r: bufio.NewReader(conn), t: t}
+		c.send(protocol.Message{Type: protocol.Hello, Platform: platform})
+		return c
+	}
+	d := dial("macos")
+	if m := d.expect(protocol.Theme); m.Theme == nil || m.Theme.Size != 1 || m.Theme.Transparency != 0 {
+		t.Fatalf("first theme %+v", m.Theme)
+	}
+	mu.Lock()
+	cfg.Theme = protocol.ThemeValues{Size: 2, Transparency: 0.5}
+	mu.Unlock()
+	if m := d.expect(protocol.Theme); m.Theme == nil || m.Theme.Size != 2 || m.Theme.Transparency != 0.5 {
+		t.Fatalf("changed theme %+v", m.Theme)
+	}
+	// Nothing more until it changes again.
+	d.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	if line, err := d.r.ReadBytes('\n'); err == nil {
+		t.Fatalf("a repeat with no change: %s", line)
+	}
+	// A client that isn't a dial, such as Settings, isn't told.
+	other := dial("settings")
+	other.expect(protocol.Hello)
+	other.expect(protocol.State)
+	other.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	if line, err := other.r.ReadBytes('\n'); err == nil {
+		t.Fatalf("settings got: %s", line)
 	}
 }
 

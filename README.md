@@ -82,6 +82,7 @@ The config is `~/.config/dial/config.json` (`%AppData%\dial\config.json` on Wind
 | Click an app on the ring | Bring it to the front |
 | Drag around the ring | Turn it: scrolls the app in front like the wheel, clockwise down; it springs back when let go |
 | Drag the centre | Move the dial |
+| Dial Settings, Theme | Change its size and transparency, live |
 | Right-click (Windows) or the menu-bar icon (macOS) | Listen, Settings, Quit |
 
 The keys are the dial's only while the pointer is over it, so they stay your apps' keys otherwise.

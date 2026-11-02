@@ -584,6 +584,37 @@ struct Dial {
 
     POINT center() const { return {kWidth / 2, 8 + (int)kOuter}; }
 
+    // MARK: Theme: drawing and input keep their own coordinates; only the
+    // window and the transform around them scale.
+    float scale = 1;
+    BYTE alpha = 255;
+    POINT anchor = {};  // where the person put the ring's centre, on screen
+
+    int scaled(int n) const { return (int)lroundf((float)n * scale); }
+
+    POINT logical(LPARAM lparam) const {
+        return {(int)lroundf((float)GET_X_LPARAM(lparam) / scale), (int)lroundf((float)GET_Y_LPARAM(lparam) / scale)};
+    }
+
+    void noteAnchor() {
+        RECT r;
+        if (!GetWindowRect(hwnd, &r)) return;
+        anchor = {r.left + scaled(center().x), r.top + scaled(center().y)};
+    }
+
+    void applyTheme(float size, float transparency) {
+        RECT work;
+        SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
+        float fit = min((float)(work.right - work.left) / kWidth, (float)(work.bottom - work.top) / kHeight);
+        scale = min(min(max(size, 0.5f), 3.0f), fit);
+        alpha = (BYTE)lroundf(255.0f * (1.0f - min(max(transparency, 0.0f), 0.8f)));
+        int w = scaled(kWidth), h = scaled(kHeight);
+        int x = max(min((int)anchor.x - scaled(center().x), (int)work.right - w), (int)work.left);
+        int y = max(min((int)anchor.y - scaled(center().y), (int)work.bottom - h), (int)work.top);
+        SetWindowPos(hwnd, nullptr, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        redraw();
+    }
+
     static bool darkMode() {
         DWORD value = 1, size = sizeof value;
         if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
@@ -603,6 +634,8 @@ struct Dial {
             if (!ready["voice"]) showHint(L"Open Dial Settings to add your 豆包 key.", true);
             else if (!ready["jev"]) showHint(L"Ready. Without a Jev key, a few plain rules tell commands from text.");
             else showHint(L"Ready.");
+        } else if (type == "theme") {
+            applyTheme((float)m["theme"]["size"].num(1), (float)m["theme"]["transparency"].num(0));
         } else if (type == "ring") {
             ring.clear();
             for (auto& id : m["ring"].items()) ring.push_back(id.str());
@@ -861,8 +894,8 @@ struct Dial {
         HDC memory = CreateCompatibleDC(screen);
         BITMAPINFO bmi = {};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-        bmi.bmiHeader.biWidth = kWidth;
-        bmi.bmiHeader.biHeight = -kHeight;
+        bmi.bmiHeader.biWidth = scaled(kWidth);
+        bmi.bmiHeader.biHeight = -scaled(kHeight);
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
@@ -875,11 +908,12 @@ struct Dial {
             g.SetTextRenderingHint(TextRenderingHintAntiAliasGridFit);
             g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
             g.Clear(Color(0, 0, 0, 0));
+            g.ScaleTransform(scale, scale);
             paint(g);
         }
         POINT origin = {0, 0};
-        SIZE size = {kWidth, kHeight};
-        BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        SIZE size = {scaled(kWidth), scaled(kHeight)};
+        BLENDFUNCTION blend = {AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA};
         RECT r;
         GetWindowRect(hwnd, &r);
         POINT at = {r.left, r.top};
@@ -1003,6 +1037,10 @@ struct Dial {
     void savePosition() {
         RECT r;
         if (!GetWindowRect(hwnd, &r)) return;
+        noteAnchor();
+        // Saved as where the normal-sized window would be, so it holds at any size.
+        r.left = anchor.x - center().x;
+        r.top = anchor.y - center().y;
         HKEY key;
         if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Dial", 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) != ERROR_SUCCESS) return;
         DWORD x = (DWORD)r.left, y = (DWORD)r.top;
@@ -1077,11 +1115,11 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 d->armed = true;
             }
             if (d) {
-                int zone = d->zoneAt({GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)});
+                int zone = d->zoneAt(d->logical(lparam));
                 if (zone != d->hoverZone) { d->hoverZone = zone; d->redraw(); }
             }
             if (d && d->pressed) {
-                POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                POINT p = d->logical(lparam);
                 if (!d->dragging) {
                     if (abs(p.x - d->dragStart.x) <= 4 && abs(p.y - d->dragStart.y) <= 4) return 0;
                     d->dragging = true;
@@ -1116,7 +1154,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (d) {
                 d->pressed = true;
                 d->dragging = false;
-                d->dragStart = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                d->dragStart = d->logical(lparam);
                 d->dragZone = d->zoneAt(d->dragStart);
                 d->lastAngle = d->angleOf(d->dragStart);
                 d->turn = 0;
@@ -1128,7 +1166,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (d && d->pressed) {
                 ReleaseCapture();
                 d->pressed = false;
-                POINT p = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+                POINT p = d->logical(lparam);
                 if (d->dragging) {
                     if (d->dragZone == 1) { d->dragging = false; d->settle(); }
                     return 0;
@@ -1209,6 +1247,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     POINT at = dial.restorePosition();
     dial.hwnd = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, L"DialWindow", L"Dial",
                                 WS_POPUP, at.x, at.y, kWidth, kHeight, nullptr, nullptr, instance, nullptr);
+    dial.noteAnchor();
     dial.apps.self = dial.hwnd;
     dial.core.owner = dial.hwnd;
     dial.mic.owner = dial.hwnd;

@@ -85,6 +85,9 @@ async function loadConfig() {
   const ring = config.ring || {};
   setRange("ringSize", ring.size ?? 8, (v) => v);
   setRange("halfLife", ring.halfLifeDays ?? 14, (v) => v + " d");
+  const theme = config.theme || {};
+  setRange("themeSize", Math.round((theme.size ?? 1) * 100), (v) => v + "%");
+  setRange("themeTransparency", Math.round((theme.transparency ?? 0) * 100), (v) => v + "%");
 }
 
 function setRange(id, value, format) {
@@ -110,13 +113,14 @@ function jevValue() {
   return j;
 }
 
-let saveTimer;
-function saveSoon(key, value) {
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
+// One timer per key, so a change to one setting can't cancel a change to another.
+const saveTimers = {};
+function saveSoon(key, value, delay = 300) {
+  clearTimeout(saveTimers[key]);
+  saveTimers[key] = setTimeout(async () => {
     await dial("config.set", { key, value });
     config[key] = value;
-  }, 300);
+  }, delay);
 }
 
 for (const input of $$("#engine [data-field], #hotwords")) input.addEventListener("input", () => saveSoon("voice", voiceValue()));
@@ -125,6 +129,33 @@ $("#commandThreshold").addEventListener("change", (e) => saveSoon("commandThresh
 $("#appThreshold").addEventListener("change", (e) => saveSoon("appThreshold", Number(e.target.value)));
 $("#ringSize").addEventListener("change", () => saveSoon("ring", { size: Number($("#ringSize").value), halfLifeDays: Number($("#halfLife").value) }));
 $("#halfLife").addEventListener("change", () => saveSoon("ring", { size: Number($("#ringSize").value), halfLifeDays: Number($("#halfLife").value) }));
+
+// MARK: - Theme
+
+function saveTheme() {
+  // Quickly, so the dial follows the slider.
+  saveSoon("theme", { size: Number($("#themeSize").value) / 100, transparency: Number($("#themeTransparency").value) / 100 }, 80);
+}
+
+function setThemeSlider(id, value) {
+  const input = $("#" + id);
+  input.value = value;
+  input.oninput();
+}
+
+$("#themeSize").addEventListener("input", saveTheme);
+$("#themeTransparency").addEventListener("input", saveTheme);
+$("#themePresets").addEventListener("click", (e) => {
+  const button = e.target.closest("button");
+  if (!button) return;
+  setThemeSlider("themeSize", button.dataset.size);
+  saveTheme();
+});
+$("#themeReset").addEventListener("click", () => {
+  setThemeSlider("themeSize", 100);
+  setThemeSlider("themeTransparency", 0);
+  saveTheme();
+});
 
 // MARK: - Tests
 

@@ -26,6 +26,7 @@ func testHost(t *testing.T) *host {
 		"voice":      object{"engines": []object{{"name": "test", "type": "volcengine", "apiKey": "k"}}, "engine": "test"},
 		"jev":        object{"apiKey": "k"},
 		"port":       1,
+		"theme":      object{"size": 1.5, "transparency": 0.25},
 		"unknownKey": "keep me",
 	})
 	if err != nil {
@@ -100,6 +101,8 @@ func TestPagesRunInARealBrowser(t *testing.T) {
 		{"Jev is ticked", `id="chk-jev"[^>]*class="ok"|class="ok"[^>]*id="chk-jev"`},
 		{"the config path from the API", `id="configPath"[^>]*>[^<]*config\.json<`},
 		{"the permissions row was updated", `Open Dial: it reports its Accessibility and Microphone grants here\.`},
+		{"the theme's size from the config", `id="themeSizeValue">150%<`},
+		{"the theme's transparency from the config", `id="themeTransparencyValue">25%<`},
 	}
 	for _, check := range checks {
 		if !regexp.MustCompile(check.pattern).MatchString(page) {
@@ -131,6 +134,21 @@ func TestConfigSetKeepsWhatItDoesntKnow(t *testing.T) {
 	}
 	if info, err := os.Stat(h.path); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("the config holds keys, so it must stay private: %v %v", info, err)
+	}
+}
+
+func TestThemeCanBeSaved(t *testing.T) {
+	h := testHost(t)
+	ctx := context.Background()
+	if _, err := h.call(ctx, "config.set", object{"key": "theme", "value": object{"size": 2.5, "transparency": 0.5}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(h.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Theme.Size != 2.5 || cfg.Theme.Transparency != 0.5 {
+		t.Errorf("the core would read %+v", cfg.Theme)
 	}
 }
 

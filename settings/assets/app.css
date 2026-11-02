@@ -64,6 +64,7 @@ h2 { font-size: 13px; font-weight: 600; color: var(--fg-2); margin: 22px 0 8px; 
 .form input:focus, .form textarea:focus { border-color: var(--accent); }
 .form .field { flex: 1; display: flex; align-items: center; gap: 8px; }
 .form input[type=range] { flex: 1; accent-color: var(--accent); }
+.presets { flex-wrap: wrap; }
 .form .value { width: 50px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .result { color: var(--muted); font-size: 12px; }
 .result.ok { color: var(--green); }

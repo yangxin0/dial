@@ -13,6 +13,12 @@ struct Invalid: Error {
 
 /// So a Ctrl-C never leaves the button held or a fixture running.
 private var runningProcesses: [Process] = []
+/// What to put back if a run is stopped while it has changed the theme.
+private var configToRestore: (path: String, data: Data)?
+private func restoreConfig() {
+    if let saved = configToRestore { try? saved.data.write(to: URL(fileURLWithPath: saved.path)) }
+    configToRestore = nil
+}
 private func releaseButton() {
     let at = CGEvent(source: nil)?.location ?? .zero
     CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: at, mouseButton: .left)?.post(tap: .cghidEventTap)
@@ -41,6 +47,7 @@ final class Runner {
     func run() -> Int32 {
         signal(SIGINT) { _ in
             releaseButton()
+            restoreConfig()
             runningProcesses.forEach { kill($0.processIdentifier, SIGTERM) }
             _exit(130)
         }
@@ -61,6 +68,9 @@ final class Runner {
                     continue
                 }
                 try test(target)
+            }
+            if only?.contains("theme") ?? true {
+                try testTheme()
             }
         } catch let invalid as Invalid {
             print("\nINVALID: \(invalid.reason)\nThis run proved nothing, so it doesn't count as a pass or a failure.")
@@ -97,7 +107,7 @@ final class Runner {
         }
         let built = (try? FileManager.default.attributesOfItem(atPath: dial.path)[.modificationDate] as? Date) ?? .distantPast
         print("Dial under test: \(dial.path), built \(built)")
-        guard waitFor(seconds: 15, { self.dialCenter() != nil }) else {
+        guard waitFor(seconds: 15, { self.dialShape() != nil }) else {
             throw Invalid(reason: "no dial on screen: `make test-scroll` starts one, or run `make run`")
         }
         // A dial just started takes a moment to reach its core.
@@ -116,14 +126,24 @@ final class Runner {
         }
     }
 
-    /// The ring's centre on screen, origin at the top left.
-    private func dialCenter() -> CGPoint? {
+    /// The dial on screen, at whatever size: its ring's centre (origin at the top
+    /// left), its scale, and how see-through macOS is showing it.
+    private struct DialShape {
+        var center: CGPoint
+        var scale: CGFloat
+        var alpha: CGFloat
+        var width: CGFloat
+    }
+
+    private func dialShape() -> DialShape? {
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
         for window in list where window[kCGWindowOwnerName as String] as? String == "Dial" {
             guard let dict = window[kCGWindowBounds as String] as? NSDictionary,
-                  let bounds = CGRect(dictionaryRepresentation: dict),
-                  bounds.width == DialMetrics.width, bounds.height == DialMetrics.height else { continue }
-            return CGPoint(x: bounds.minX + DialMetrics.width / 2, y: bounds.minY + DialMetrics.topMargin + DialMetrics.outerRadius)
+                  let bounds = CGRect(dictionaryRepresentation: dict), bounds.width > 0,
+                  abs(bounds.height / bounds.width - DialMetrics.height / DialMetrics.width) < 0.02 else { continue }
+            let scale = bounds.width / DialMetrics.width
+            return DialShape(center: CGPoint(x: bounds.midX, y: bounds.minY + (DialMetrics.topMargin + DialMetrics.outerRadius) * scale),
+                             scale: scale, alpha: window[kCGWindowAlpha as String] as? CGFloat ?? 1, width: bounds.width)
         }
         return nil
     }
@@ -199,6 +219,61 @@ final class Runner {
         }
     }
 
+    /// Changes the theme in the real config, checks the running dial follows
+    /// it, and drags the ring at that size and transparency: a resized or
+    /// see-through window could stop taking clicks. The config is put back.
+    private func testTheme() throws {
+        let name = "theme"
+        print("--- \(name)")
+        let dir = ProcessInfo.processInfo.environment["DIAL_CONFIG_DIR"] ?? (NSHomeDirectory() + "/.config/dial")
+        let path = dir + "/config.json"
+        guard let original = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              var config = (try? JSONSerialization.jsonObject(with: original)) as? [String: Any] else {
+            throw Invalid(reason: "can't read the config at \(path)")
+        }
+        configToRestore = (path, original)
+        defer { restoreConfig() }
+        guard let target = allTargets.first(where: { $0.name == "native" }) else { return }
+        let launched = try target.launch(scratch)
+        runningProcesses.append(launched.process)
+        defer {
+            launched.process.terminate()
+            runningProcesses.removeAll { $0 === launched.process }
+            usleep(400_000)
+        }
+        guard waitFor(seconds: 25, { ScrollEvent.frontWindow(of: launched.pid) != nil && readProbe(launched.probe) != nil }) else {
+            throw Invalid(reason: "the theme test's window never became ready")
+        }
+        usleep(500_000)
+        try bringToFront(launched.pid, name)
+        // The ends of the range: the smallest, and the biggest that fits, most see-through.
+        for (size, transparency) in [(CGFloat(0.5), CGFloat(0)), (CGFloat(2.5), DialTheme.maxTransparency)] {
+            let label = "size \(Int(size * 100))%, transparent \(Int(transparency * 100))%"
+            config["theme"] = ["size": size, "transparency": transparency]
+            try JSONSerialization.data(withJSONObject: config, options: .prettyPrinted).write(to: URL(fileURLWithPath: path))
+            let want = DialMetrics.width * size
+            let applied = waitFor(seconds: 5) {
+                guard let shape = self.dialShape() else { return false }
+                return abs(shape.width - want) < 1 && abs(shape.alpha - (1 - transparency)) < 0.02
+            }
+            let now = dialShape()
+            record(name, label + ": applied", applied ? .pass : .fail,
+                   applied ? "the running dial is \(Int(want)) wide" : "the dial is \(Int(now?.width ?? 0)) wide with alpha \(now?.alpha ?? 0), wanted \(Int(want)) and \(1 - transparency)")
+            guard applied else { continue }
+            usleep(300_000)
+            try checkDrag(target, launched, label: label, from: 90, to: -90) { moved in
+                moved > 0 ? self.size(moved, Self.halfTurnLines * target.perLine) : "moved \(moved), expected down"
+            }
+        }
+        // And back: the dial follows the original config again.
+        restoreConfig()
+        guard let original = (try? JSONSerialization.jsonObject(with: original)) as? [String: Any] else { return }
+        let theme = original["theme"] as? [String: Any]
+        let size = theme?["size"] as? CGFloat ?? 1
+        let back = waitFor(seconds: 5) { abs((self.dialShape()?.width ?? 0) - DialMetrics.width * size) < 1 }
+        record(name, "put back", back ? .pass : .fail, back ? "the dial returned to \(Int(size * 100))%" : "the dial didn't return to \(Int(size * 100))%")
+    }
+
     private func position(_ probe: Probe, _ name: String) throws -> Int {
         guard let value = readProbe(probe) else { throw Invalid(reason: "can't read \(name)'s position") }
         return value
@@ -267,10 +342,17 @@ final class Runner {
         let pid = launched.pid, name = target.name
         try requireFront(pid, name)
         guard let window = ScrollEvent.frontWindow(of: pid) else { throw Invalid(reason: "\(name) has no window") }
-        let base = try screenshot(window.windowID, "base")
-        usleep(500_000)
-        guard try screenshot(window.windowID, "control") == base else {
-            throw Invalid(reason: "\(name)'s window changes by itself, so screenshots can't show a scroll")
+        // A window just brought forward is still redrawing: wait until it's still.
+        var base = try screenshot(window.windowID, "base")
+        var settled = false
+        for _ in 0..<20 where !settled {
+            usleep(500_000)
+            let next = try screenshot(window.windowID, "control")
+            settled = next == base
+            base = next
+        }
+        guard settled else {
+            throw Invalid(reason: "\(name)'s window keeps changing by itself, so screenshots can't show a scroll")
         }
         var offPath = try drag(pid, name, from: -90, to: 90)
         record(name, "ring counterclockwise", try screenshot(window.windowID, "up") != base ? .pass : .fail, "the view moved up from the bottom")
@@ -330,10 +412,11 @@ final class Runner {
     /// the pointer to the middle of the screen.
     private func drag(_ pid: pid_t, _ name: String, from: Double, to: Double) throws -> CGFloat {
         try requireFront(pid, name)
-        guard let center = dialCenter() else { throw Invalid(reason: "the dial's window went away") }
+        guard let shape = dialShape() else { throw Invalid(reason: "the dial's window went away") }
+        let center = shape.center, radius = DialMetrics.slotRadius * shape.scale
         func point(_ degrees: Double) -> CGPoint {
             let r = degrees * .pi / 180
-            return CGPoint(x: center.x + DialMetrics.slotRadius * cos(r), y: center.y - DialMetrics.slotRadius * sin(r))
+            return CGPoint(x: center.x + radius * cos(r), y: center.y - radius * sin(r))
         }
         post(.mouseMoved, at: point(from))
         usleep(120_000)
@@ -347,7 +430,7 @@ final class Runner {
             post(.leftMouseUp, at: currentPointer())
             usleep(700_000)
         }
-        let watch = PointerWatch(center: center, radius: DialMetrics.slotRadius)
+        let watch = PointerWatch(center: center, radius: radius)
         watch.start()
         defer { watch.stop() }
         let steps = 90
@@ -360,14 +443,18 @@ final class Runner {
                                 mouseCursorPosition: CGPoint(x: here.x + dx, y: here.y + dy), mouseButton: .left)
             event?.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx.rounded()))
             event?.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy.rounded()))
+            event?.setIntegerValueField(.eventSourceUserData, value: PointerWatch.ourTag)
             event?.post(tap: .cghidEventTap)
             // A hand stops now and then. Nothing puts the pointer back during this.
             usleep(i % 15 == 0 ? 90_000 : 12_000)
         }
         usleep(150_000)
-        let (worst, wheels) = watch.stop()
+        let (worst, wheels, others) = watch.stop()
         if wheels > 0 {
             record(name, "no wheel through the system", .fail, "\(wheels) passed through it during the drag, and those move the pointer")
+        } else if others > 0 {
+            // With no wheel to blame, this motion came from outside the dial.
+            throw Invalid(reason: "the mouse moved during a drag (\(others) events that aren't this test's). Run it again without touching the mouse")
         }
         if frontPID() != pid {
             record(name, "app stays in front", .fail, "\(frontName()) took the front during the drag")
@@ -395,9 +482,12 @@ final class PointerWatch {
     private let lock = NSLock()
     private var worst: CGFloat = 0
     private var wheels = 0
+    private var others = 0
     private var running = false
     private var stopped = false
-    private var result: (CGFloat, Int) = (0, 0)
+    private var result: (CGFloat, Int, Int) = (0, 0, 0)
+    /// Marks this test's own drag events.
+    static let ourTag: Int64 = 0xD1A2
     private var tap: CFMachPort?
     private var tapLoop: CFRunLoop?
 
@@ -419,14 +509,20 @@ final class PointerWatch {
         }
         Thread.detachNewThread { [self] in
             let callback: CGEventTapCallBack = { _, type, event, info in
-                if type == .scrollWheel, let info {
+                if let info {
                     let watch = Unmanaged<PointerWatch>.fromOpaque(info).takeUnretainedValue()
-                    watch.lock.withLock { watch.wheels += 1 }
+                    if type == .scrollWheel {
+                        watch.lock.withLock { watch.wheels += 1 }
+                    } else if event.getIntegerValueField(.eventSourceUserData) != PointerWatch.ourTag {
+                        watch.lock.withLock { watch.others += 1 }
+                    }
                 }
                 return Unmanaged.passUnretained(event)
             }
             guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
-                                               eventsOfInterest: CGEventMask(1 << CGEventType.scrollWheel.rawValue),
+                                               eventsOfInterest: CGEventMask(1 << CGEventType.scrollWheel.rawValue)
+                                                   | CGEventMask(1 << CGEventType.leftMouseDragged.rawValue)
+                                                   | CGEventMask(1 << CGEventType.mouseMoved.rawValue),
                                                callback: callback, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return }
             let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
@@ -441,7 +537,7 @@ final class PointerWatch {
 
     /// Safe to call twice: the second call returns the same result.
     @discardableResult
-    func stop() -> (CGFloat, Int) {
+    func stop() -> (CGFloat, Int, Int) {
         lock.lock()
         defer { lock.unlock() }
         if stopped { return result }
@@ -449,7 +545,7 @@ final class PointerWatch {
         running = false
         if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
         if let tapLoop { CFRunLoopStop(tapLoop) }
-        result = (worst, wheels)
+        result = (worst, wheels, others)
         return result
     }
 }
