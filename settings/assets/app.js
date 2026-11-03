@@ -296,7 +296,7 @@ function ringPreview(style) {
   }
   if (style === "ticksAndDimple" || style === "dimple") {
     const [x, y] = at(110, 33).split(" ");
-    marks += `<circle cx="${x}" cy="${y}" r="6" class="ringDimple"/>`;
+    marks += `<circle cx="${x}" cy="${y}" r="3" class="ringDimple"/>`;
   }
   if (style === "trail") {
     for (let i = 0; i < 10; i++) marks += `<path d="M${at(70 + i * 9, 33)}L${at(79 + i * 9, 33)}" class="ringTrail" stroke-width="5" opacity="${((10 - i) / 10 * .85).toFixed(2)}"/>`;

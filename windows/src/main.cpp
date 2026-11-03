@@ -943,7 +943,7 @@ struct Dial {
         if (ringStyle == "ticksAndDimple" || ringStyle == "dimple") {
             // The app icon's dimple.
             PointF p = at((float)M_PI / 2 + marksTurn, slot);
-            float r = 11;
+            float r = 5.5f;
             LinearGradientBrush brush(PointF(p.X, p.Y - r), PointF(p.X, p.Y + r), Color(255, 0xF2, 0x54, 0x1A), Color(255, 0xFF, 0x8A, 0x4D));
             g.FillEllipse(&brush, p.X - r, p.Y - r, r * 2, r * 2);
         }

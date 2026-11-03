@@ -18,7 +18,7 @@ public enum RingMarks {
     /// Every sixth tick is longer: 30° apart, so a turn is easy to follow.
     public static let majorEvery = 6
     public static let spokeCount = 12
-    public static let dimpleRadius: CGFloat = 11
+    public static let dimpleRadius: CGFloat = 5.5
     public static let trailWidth: CGFloat = 9
 }
 
