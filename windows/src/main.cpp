@@ -955,9 +955,10 @@ struct Dial {
         Pen outline(overRing ? Color(128, accent.GetR(), accent.GetG(), accent.GetB()) : edge, overRing ? 2.0f : 1.0f);
         g.DrawEllipse(&outline, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
 
-        // The slots.
+        // The slots, hidden while a drag has the ring.
         int count = (int)std::min<size_t>(ring.size(), kMaxSlots);
-        for (int i = 0; i < count; i++) {
+        bool ringDragged = dragging && dragZone == 1;
+        for (int i = 0; i < count && !ringDragged; i++) {
             const AppInfo* app = apps.find(ring[i]);
             PointF at = slotCenter(i, count);
             // The active app's icon is a fifth larger than the rest.
@@ -1142,20 +1143,18 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                         d->savePosition();
                         return 0;
                     }
+                    d->redraw();  // The icons hide.
                 }
                 if (d->dragZone == 1) {
-                    // The ring follows the pointer round.
                     float now = d->angleOf(p);
                     float delta = now - d->lastAngle;
                     if (delta > (float)M_PI) delta -= 2 * (float)M_PI;
                     if (delta < -(float)M_PI) delta += 2 * (float)M_PI;
                     d->lastAngle = now;
-                    d->rotation += delta;
                     // Every 15° of turn scrolls the app in front: clockwise down.
                     d->turn += delta;
                     while (d->turn >= Dial::kTurnStep) { d->turn -= Dial::kTurnStep; input::scroll(3); }
                     while (d->turn <= -Dial::kTurnStep) { d->turn += Dial::kTurnStep; input::scroll(-3); }
-                    d->redraw();
                 }
             }
             return 0;
@@ -1179,7 +1178,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                 ReleaseCapture();
                 d->pressed = false;
                 if (d->dragging) {
-                    if (d->dragZone == 1) { d->dragging = false; d->settle(); }
+                    if (d->dragZone == 1) { d->dragging = false; d->settle(); d->redraw(); }
                     return 0;
                 }
                 // A click: it means what was pressed, wherever a shaky hand let go.

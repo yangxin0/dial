@@ -58,7 +58,7 @@ On Windows itself, build the dial with CMake and Visual Studio or MinGW (`window
 
 `make test` runs the Go and Swift unit tests, and CI runs them on every push. On Windows CI also starts the real dial and checks that it connects to dial-core, stays up, and takes the core down with it.
 
-`make test-scroll` runs on your Mac, because it needs a screen and Accessibility. It builds and starts the dial, then drags the real ring both ways over a native window, a WebKit page, a separate Chrome with a temporary profile, a full-screen terminal program and terminal scrollback. It fails if an app doesn't scroll the right way by about the right amount, if the pointer leaves the ring's path, if a wheel event passes through the system, or if the app loses the front. It also clicks every icon on your ring: each app must come to the front showing a window, whether its windows were closed, hidden or minimized, a click between icons must do nothing, and a press that moves must not switch apps. So an app on your ring with no window opens one, and these clicks count as picks in the learned ring, as yours do. It also checks that it's measuring something: an exit of 2 means the run was invalid, for instance because the wrong app was in front or the button wasn't held. It takes over the pointer for a couple of minutes, so don't touch the mouse. `make test-scroll ARGS='--only clicks,native'` runs part of it.
+`make test-scroll` runs on your Mac, because it needs a screen and Accessibility. It builds and starts the dial, then drags the real ring both ways over a native window, a WebKit page, a separate Chrome with a temporary profile, a full-screen terminal program and terminal scrollback. It fails if an app doesn't scroll the right way by about the right amount, if the pointer leaves the ring's path, if a wheel event passes through the system, or if the app loses the front. It also clicks every icon on your ring: each app must come to the front showing a window, whether its windows were closed, hidden or minimized, a click between icons must do nothing, and a press that moves must not switch apps. The icons must hide during a ring drag and come back where they were. So an app on your ring with no window opens one, and these clicks count as picks in the learned ring, as yours do. It also checks that it's measuring something: an exit of 2 means the run was invalid, for instance because the wrong app was in front or the button wasn't held. It takes over the pointer for a couple of minutes, so don't touch the mouse. `make test-scroll ARGS='--only clicks,icons,native'` runs part of it.
 
 ## Set up
 
@@ -80,7 +80,7 @@ The config is `~/.config/dial/config.json` (`%AppData%\dial\config.json` on Wind
 | Hover, **Space** / **Esc** | Listen / cancel |
 | Wheel over the dial | Vertical scrolls the app in front; horizontal turns the ring |
 | Click an app's icon on the ring | Bring it to the front, opening a window if it has none; a click between icons does nothing |
-| Drag around the ring | Turn it: scrolls the app in front like the wheel, clockwise down; it springs back when let go |
+| Drag around the ring | Scrolls the app in front like the wheel, clockwise down; the icons hide until you let go |
 | Drag the centre | Move the dial |
 | Dial Settings, Theme | Change its size and transparency, live |
 | Right-click (Windows) or the menu-bar icon (macOS) | Listen, Settings, Quit |

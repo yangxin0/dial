@@ -111,7 +111,7 @@ final class DialView: NSView {
         }
     }
     /// The ring's turn, in radians: slot 0 sits at the top plus this. It
-    /// follows a drag, and eases to put the active app at the top.
+    /// eases to put the active app at the top.
     private var rotation: CGFloat = 0
     private var rotationTarget: CGFloat = 0
     private var spinTimer: Timer?
@@ -135,9 +135,10 @@ final class DialView: NSView {
     private var pulsePhase: CGFloat = 0
     private var mouseDownAt: NSPoint?
     private var dragging = false
-    /// A drag that began on the ring turns it, and the turn scrolls the
-    /// app in front; one that began on the button moves the dial.
+    /// A drag that began on the ring scrolls the app in front, with the icons
+    /// hidden; one that began on the button moves the dial.
     private var dragZone = DialZone.none
+    private var ringDragged: Bool { dragging && dragZone == .ring }
     private var turn = TurnCounter(startAngle: 0)
     private var wheelX: CGFloat = 0
     private var wheelY: CGFloat = 0
@@ -192,7 +193,7 @@ final class DialView: NSView {
     private func retarget() {
         guard let active = activeID, let index = ring.firstIndex(where: { $0.id == active }), index < slotCount else { return }
         rotationTarget = RingGeometry.rotation(puttingSlot: index, of: slotCount, atTopNear: rotation)
-        if !(dragging && dragZone == .ring) { spin() }
+        if !ringDragged { spin() }
     }
 
     private func spin() {
@@ -211,10 +212,10 @@ final class DialView: NSView {
         }
     }
 
-    /// A drag let go: the ring springs back home, the active app at the
-    /// top.
+    /// A drag let go: the icons come back where they were.
     private func settle() {
         Log.write("ring let go")
+        needsDisplay = true
         retarget()
     }
 
@@ -241,18 +242,17 @@ final class DialView: NSView {
                 window?.performDrag(with: event)
                 return
             }
+            needsDisplay = true  // The icons hide.
         }
         guard dragZone == .ring else { return }
         let point = convert(event.locationInWindow, from: nil)
         guard geometry.hasMeaningfulAngle(at: point) else { return }
-        // The ring follows the pointer round, and the turn scrolls the app in
-        // front: clockwise down, as a wheel rolled forward does.
-        let (delta, lines) = turn.move(to: geometry.angle(of: point))
-        rotation += delta
+        // Going round scrolls the app in front: clockwise down, as a wheel
+        // rolled forward does.
+        let lines = turn.move(to: geometry.angle(of: point)).lines
         for _ in 0..<abs(lines) {
             Input.scroll(lines: lines > 0 ? 1 : -1)
         }
-        needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -323,7 +323,7 @@ final class DialView: NSView {
 
         // The slots; the active app's icon is a fifth larger than the rest.
         let count = min(ring.count, Self.maxSlots)
-        for index in 0..<count {
+        for index in 0..<count where !ringDragged {
             let app = ring[index]
             let at = geometry.slotCenter(index, of: count, rotation: rotation)
             let size: CGFloat = app.id == activeID ? 36 : 30

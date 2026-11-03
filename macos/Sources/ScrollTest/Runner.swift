@@ -72,6 +72,9 @@ final class Runner {
             if only?.contains("clicks") ?? true {
                 try testClicks()
             }
+            if only?.contains("icons") ?? true {
+                try testIconsHide()
+            }
             if only?.contains("theme") ?? true {
                 try testTheme()
             }
@@ -136,6 +139,7 @@ final class Runner {
         var scale: CGFloat
         var alpha: CGFloat
         var width: CGFloat
+        var window: CGWindowID
     }
 
     private func dialShape() -> DialShape? {
@@ -146,7 +150,8 @@ final class Runner {
                   abs(bounds.height / bounds.width - DialMetrics.height / DialMetrics.width) < 0.02 else { continue }
             let scale = bounds.width / DialMetrics.width
             return DialShape(center: CGPoint(x: bounds.midX, y: bounds.minY + (DialMetrics.topMargin + DialMetrics.outerRadius) * scale),
-                             scale: scale, alpha: window[kCGWindowAlpha as String] as? CGFloat ?? 1, width: bounds.width)
+                             scale: scale, alpha: window[kCGWindowAlpha as String] as? CGFloat ?? 1, width: bounds.width,
+                             window: window[kCGWindowNumber as String] as? CGWindowID ?? 0)
         }
         return nil
     }
@@ -430,6 +435,68 @@ final class Runner {
         }
     }
 
+    // MARK: - Icons during a drag
+
+    /// Reads a screenshot of the dial round the circle its icons sit on: for
+    /// each degree, whether that spot differs from the bare ring. The bare ring
+    /// is read further out, past the largest icon.
+    private func iconProfile(_ shape: DialShape, _ label: String) throws -> [Bool] {
+        let data = try screenshot(shape.window, label)
+        guard let image = NSBitmapImageRep(data: data), image.pixelsWide > 0 else {
+            throw Invalid(reason: "couldn't read a screenshot of the dial")
+        }
+        let pixels = CGFloat(image.pixelsWide) / shape.width * shape.scale
+        let center = CGPoint(x: CGFloat(image.pixelsWide) / 2, y: (DialMetrics.topMargin + DialMetrics.outerRadius) * pixels)
+        func color(_ degrees: Int, _ radius: CGFloat) -> [CGFloat] {
+            let r = Double(degrees) * .pi / 180
+            let c = image.colorAt(x: Int(center.x + radius * pixels * cos(r)), y: Int(center.y - radius * pixels * sin(r)))?.usingColorSpace(.sRGB)
+            return [c?.redComponent ?? 0, c?.greenComponent ?? 0, c?.blueComponent ?? 0]
+        }
+        let bare = (0..<360).map { color($0, DialMetrics.outerRadius - 3) }
+        let surface = (0..<3).map { channel in bare.map { $0[channel] }.sorted()[180] }
+        return (0..<360).map { degrees in
+            let here = color(degrees, DialMetrics.slotRadius)
+            return (0..<3).contains { abs(here[$0] - surface[$0]) > 0.1 }
+        }
+    }
+
+    /// A drag on the ring hides the icons, whether it began on one or not, and
+    /// they come back where they were at once. A press that hasn't moved may
+    /// yet be a click, so it keeps them.
+    private func testIconsHide() throws {
+        print("--- icons")
+        let name = "icons"
+        let ring = try settledRing()
+        guard let shape = dialShape(), let pid = frontPID() else { throw Invalid(reason: "the dial's window went away") }
+        let idle = try iconProfile(shape, "icons-idle")
+        let shown = idle.filter { $0 }.count
+        guard shown >= 30 else {
+            throw Invalid(reason: "only \(shown) of 360 spots on the icons' circle look like icons, so this can't tell them from a bare ring")
+        }
+        func changed(_ other: [Bool]) -> Int { zip(idle, other).filter { $0 != $1 }.count }
+
+        // Between two icons, so that letting go picks nothing.
+        let gap = iconPoint(ring.front, in: ring, shape, offset: 180 / Double(ring.ids.count))
+        post(.mouseMoved, at: gap)
+        usleep(150_000)
+        post(.leftMouseDown, at: gap)
+        usleep(150_000)
+        let held = try iconProfile(shape, "icons-held")
+        post(.leftMouseUp, at: gap)
+        usleep(300_000)
+        record(name, "a press keeps the icons", changed(held) <= 12 ? .pass : .fail, "\(changed(held)) of 360 spots changed")
+
+        var during: [Bool] = []
+        _ = try drag(pid, name, from: 90, to: -90, midway: {
+            during = try self.iconProfile(shape, "icons-during")
+        }, waitAfter: 0)
+        let after = try iconProfile(shape, "icons-after")
+        let left = during.filter { $0 }.count
+        record(name, "a drag hides the icons", !during.isEmpty && left <= 3 ? .pass : .fail, "\(left) of 360 spots still look like icons, from \(shown)")
+        record(name, "letting go brings them back", changed(after) <= 12 ? .pass : .fail, "\(changed(after)) of 360 spots differ from before the drag, right after the release")
+        usleep(700_000)
+    }
+
     /// Changes the theme in the real config, checks the running dial follows
     /// it, and drags the ring at that size and transparency: a resized or
     /// see-through window could stop taking clicks. The config is put back.
@@ -621,7 +688,8 @@ final class Runner {
     /// a hand's is. An earlier version sent absolute positions, each of which
     /// put the pointer back on the path, and passed the build that was pulling
     /// the pointer to the middle of the screen.
-    private func drag(_ pid: pid_t, _ name: String, from: Double, to: Double) throws -> CGFloat {
+    private func drag(_ pid: pid_t, _ name: String, from: Double, to: Double, midway: (() throws -> Void)? = nil,
+                      waitAfter: useconds_t = 700_000) throws -> CGFloat {
         try requireFront(pid, name)
         guard let shape = dialShape() else { throw Invalid(reason: "the dial's window went away") }
         let center = shape.center, radius = DialMetrics.slotRadius * shape.scale
@@ -639,7 +707,7 @@ final class Runner {
         }
         defer {
             post(.leftMouseUp, at: currentPointer())
-            usleep(700_000)
+            usleep(waitAfter)
         }
         let watch = PointerWatch(center: center, radius: radius)
         watch.start()
@@ -658,6 +726,7 @@ final class Runner {
             event?.post(tap: .cghidEventTap)
             // A hand stops now and then. Nothing puts the pointer back during this.
             usleep(i % 15 == 0 ? 90_000 : 12_000)
+            if i == steps / 2 { try midway?() }
         }
         usleep(150_000)
         let (worst, wheels, others) = watch.stop()
@@ -665,7 +734,7 @@ final class Runner {
             record(name, "no wheel through the system", .fail, "\(wheels) passed through it during the drag, and those move the pointer")
         } else if others > 0 {
             // With no wheel to blame, this motion came from outside the dial.
-            throw Invalid(reason: "the mouse moved during a drag (\(others) events that aren't this test's). Run it again without touching the mouse")
+            throw Invalid(reason: "the mouse moved or scrolled during a drag (\(others) events that aren't this test's or the dial's). Run it again without touching the mouse")
         }
         if frontPID() != pid {
             record(name, "app stays in front", .fail, "\(frontName()) took the front during the drag")
@@ -690,6 +759,9 @@ final class Runner {
 final class PointerWatch {
     private let center: CGPoint
     private let radius: CGFloat
+    /// Only the dial's wheels count against it: a person scrolling during a
+    /// run sends many more, and those say the run proved nothing.
+    private let dial = NSRunningApplication.runningApplications(withBundleIdentifier: "com.yangxin.dial").first?.processIdentifier
     private let lock = NSLock()
     private var worst: CGFloat = 0
     private var wheels = 0
@@ -723,7 +795,10 @@ final class PointerWatch {
                 if let info {
                     let watch = Unmanaged<PointerWatch>.fromOpaque(info).takeUnretainedValue()
                     if type == .scrollWheel {
-                        watch.lock.withLock { watch.wheels += 1 }
+                        let fromDial = event.getIntegerValueField(.eventSourceUnixProcessID) == Int64(watch.dial ?? -1)
+                        watch.lock.withLock {
+                            if fromDial { watch.wheels += 1 } else { watch.others += 1 }
+                        }
                     } else if event.getIntegerValueField(.eventSourceUserData) != PointerWatch.ourTag {
                         watch.lock.withLock { watch.others += 1 }
                     }
