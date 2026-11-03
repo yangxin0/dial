@@ -25,6 +25,18 @@ final class DialThemeTests: XCTestCase {
                        DialTheme(size: DialTheme.maxSize, transparency: DialTheme.maxTransparency))
     }
 
+    func testItDecodesEveryRingStyleTheCoreSends() throws {
+        for (name, style) in [("ticksAndDimple", RingStyle.ticksAndDimple), ("ticks", .ticks), ("dimple", .dimple), ("spokes", .spokes), ("trail", .trail)] {
+            let theme = try JSONDecoder().decode(DialTheme.self, from: Data(#"{"size":1,"ringStyle":"\#(name)"}"#.utf8))
+            XCTAssertEqual(theme.ringStyle, style)
+        }
+    }
+
+    func testAMissingOrUnknownRingStyleFallsBack() throws {
+        XCTAssertEqual(try JSONDecoder().decode(DialTheme.self, from: Data("{}".utf8)).ringStyle, .ticksAndDimple)
+        XCTAssertEqual(try JSONDecoder().decode(DialTheme.self, from: Data(#"{"ringStyle":"neon"}"#.utf8)).ringStyle, .ticksAndDimple)
+    }
+
     func testTheRingStaysPutWhenTheSizeChanges() {
         let center = CGPoint(x: 900, y: 500)
         for size in stride(from: DialTheme.minSize, through: DialTheme.maxSize, by: 0.25) {

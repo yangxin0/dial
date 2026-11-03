@@ -34,6 +34,7 @@ final class DialPanel: NSPanel {
     /// and only its bounds scale, so its drawing and its events need no change.
     func apply(_ theme: DialTheme) {
         self.theme = theme
+        view.ringStyle = theme.ringStyle
         layOut()
         alphaValue = theme.alpha
     }
@@ -115,6 +116,13 @@ final class DialView: NSView {
     private var rotation: CGFloat = 0
     private var rotationTarget: CGFloat = 0
     private var spinTimer: Timer?
+    /// What the ring shows as a drag turns it.
+    var ringStyle = RingStyle.ticksAndDimple { didSet { needsDisplay = true } }
+    /// How far the marks have gone round. They stay where a drag leaves them,
+    /// as a wheel does; the icons keep their own places.
+    private var marksTurn: CGFloat = 0
+    private var trail = RingTrail()
+    private var trailTimer: Timer?
     var phase: Phase = .idle {
         didSet {
             needsDisplay = true
@@ -215,8 +223,25 @@ final class DialView: NSView {
     /// A drag let go: the icons come back where they were.
     private func settle() {
         Log.write("ring let go")
+        trail.clear()
+        trailTimer?.invalidate()
+        trailTimer = nil
         needsDisplay = true
         retarget()
+    }
+
+    /// Keeps drawing while the trail fades, as it does when the pointer pauses.
+    private func keepTrailFading() {
+        guard trailTimer == nil else { return }
+        trailTimer = Timer.scheduledTimer(withTimeInterval: 1 / 30, repeats: true) { [weak self] timer in
+            guard let self else { return }
+            self.trail.prune(now: ProcessInfo.processInfo.systemUptime)
+            self.needsDisplay = true
+            if self.trail.isEmpty {
+                timer.invalidate()
+                self.trailTimer = nil
+            }
+        }
     }
 
     // MARK: - Mouse
@@ -248,11 +273,18 @@ final class DialView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         guard geometry.hasMeaningfulAngle(at: point) else { return }
         // Going round scrolls the app in front: clockwise down, as a wheel
-        // rolled forward does.
-        let lines = turn.move(to: geometry.angle(of: point)).lines
+        // rolled forward does. The marks go round with the pointer.
+        let angle = geometry.angle(of: point)
+        let (delta, lines) = turn.move(to: angle)
+        marksTurn += delta
+        if ringStyle.hasTrail {
+            trail.add(angle: angle, at: ProcessInfo.processInfo.systemUptime)
+            keepTrailFading()
+        }
         for _ in 0..<abs(lines) {
             Input.scroll(lines: lines > 0 ? 1 : -1)
         }
+        needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -297,6 +329,46 @@ final class DialView: NSView {
 
     // MARK: - Drawing
 
+    /// The app icon's dimple.
+    private static let dimpleTop = NSColor(srgbRed: 0xF2 / 255.0, green: 0x54 / 255.0, blue: 0x1A / 255.0, alpha: 1)
+    private static let dimpleBottom = NSColor(srgbRed: 0xFF / 255.0, green: 0x8A / 255.0, blue: 0x4D / 255.0, alpha: 1)
+
+    /// How the ring shows it's turning, only during a drag: at rest it has its
+    /// icons, and marks beside them are clutter.
+    private func drawMarks(ink: NSColor) {
+        guard ringDragged else { return }
+        func stroke(_ mark: RingMark, _ color: NSColor, width: CGFloat) {
+            let path = NSBezierPath()
+            path.move(to: mark.from)
+            path.line(to: mark.to)
+            path.lineWidth = width
+            path.lineCapStyle = .round
+            color.setStroke()
+            path.stroke()
+        }
+        if ringStyle.hasTicks {
+            for mark in geometry.ticks(turn: marksTurn) {
+                stroke(mark, ink.withAlphaComponent(mark.major ? 0.7 : 0.4), width: mark.major ? 1.6 : 1)
+            }
+        }
+        if ringStyle.hasSpokes {
+            for mark in geometry.spokes(turn: marksTurn) {
+                stroke(mark, ink.withAlphaComponent(0.28), width: 3)
+            }
+        }
+        if ringStyle.hasDimple {
+            let at = geometry.dimple(turn: marksTurn), radius = RingMarks.dimpleRadius
+            let path = NSBezierPath(ovalIn: NSRect(x: at.x - radius, y: at.y - radius, width: radius * 2, height: radius * 2))
+            NSGradient(starting: Self.dimpleTop, ending: Self.dimpleBottom)?.draw(in: path, angle: -90)
+        }
+        if ringStyle.hasTrail {
+            for piece in trail.segments(now: ProcessInfo.processInfo.systemUptime) {
+                let mark = RingMark(from: geometry.trailPoint(angle: piece.from), to: geometry.trailPoint(angle: piece.to), major: false)
+                stroke(mark, Self.dimpleTop.withAlphaComponent(piece.alpha * 0.8), width: RingMarks.trailWidth)
+            }
+        }
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let surface = dark ? NSColor(white: 0.14, alpha: 0.94) : NSColor(white: 0.97, alpha: 0.94)
@@ -320,6 +392,8 @@ final class DialView: NSView {
         (hover == .ring ? accent.withAlphaComponent(0.5) : edge).setStroke()
         outer.lineWidth = hover == .ring ? 2 : 1
         outer.stroke()
+
+        drawMarks(ink: dark ? .white : .black)
 
         // The slots; the active app's icon is a fifth larger than the rest.
         let count = min(ring.count, Self.maxSlots)

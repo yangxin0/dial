@@ -73,7 +73,7 @@ func Default() *Config {
 		AppThreshold:     dispatch.DefaultAppThreshold,
 		Port:             protocol.DefaultPort,
 		Ring:             Ring{Size: ring.DefaultSize, HalfLifeDays: ring.DefaultHalfLifeDays},
-		Theme:            protocol.ThemeValues{Size: 1},
+		Theme:            protocol.ThemeValues{Size: 1, RingStyle: protocol.RingStyleTicksAndDimple},
 	}
 }
 
@@ -91,7 +91,7 @@ const Template = `{
   "appThreshold": 0.5,
   "port": 47831,
   "ring": {"size": 8, "halfLifeDays": 14},
-  "theme": {"size": 1, "transparency": 0}
+  "theme": {"size": 1, "transparency": 0, "ringStyle": "ticksAndDimple"}
 }
 `
 
@@ -160,6 +160,11 @@ func Load(path string) (*Config, error) {
 	}
 	c.Theme.Size = math.Min(math.Max(c.Theme.Size, MinThemeSize), MaxThemeSize)
 	c.Theme.Transparency = math.Min(math.Max(c.Theme.Transparency, 0), MaxThemeTransparency)
+	switch c.Theme.RingStyle {
+	case protocol.RingStyleTicksAndDimple, protocol.RingStyleTicks, protocol.RingStyleDimple, protocol.RingStyleSpokes, protocol.RingStyleTrail:
+	default:
+		c.Theme.RingStyle = protocol.RingStyleTicksAndDimple
+	}
 	if c.Port <= 0 || c.Port > 65535 {
 		c.Port = protocol.DefaultPort
 	}

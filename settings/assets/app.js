@@ -88,6 +88,7 @@ async function loadConfig() {
   const theme = config.theme || {};
   setRange("themeSize", Math.round((theme.size ?? 1) * 100), (v) => v + "%");
   setRange("themeTransparency", Math.round((theme.transparency ?? 0) * 100), (v) => v + "%");
+  setRingStyle(theme.ringStyle ?? DEFAULT_RING_STYLE);
 }
 
 function setRange(id, value, format) {
@@ -134,8 +135,54 @@ $("#halfLife").addEventListener("change", () => saveSoon("ring", { size: Number(
 
 function saveTheme() {
   // Quickly, so the dial follows the slider.
-  saveSoon("theme", { size: Number($("#themeSize").value) / 100, transparency: Number($("#themeTransparency").value) / 100 }, 80);
+  saveSoon("theme", { size: Number($("#themeSize").value) / 100, transparency: Number($("#themeTransparency").value) / 100, ringStyle }, 80);
 }
+
+// What the ring shows as a drag turns it. The names are the config's.
+var DEFAULT_RING_STYLE = "ticksAndDimple";
+var ringStyle = DEFAULT_RING_STYLE;
+var RING_STYLES = [
+  ["ticksAndDimple", "Ticks + dimple"], ["ticks", "Ticks"], ["dimple", "Dimple"], ["spokes", "Spokes"], ["trail", "Trail"],
+];
+
+// A small picture of the ring in the middle of a drag.
+function ringPreview(style) {
+  const at = (degrees, radius) => {
+    const a = degrees * Math.PI / 180;
+    return `${(50 + radius * Math.cos(a)).toFixed(2)} ${(50 - radius * Math.sin(a)).toFixed(2)}`;
+  };
+  const line = (degrees, from, to, width, opacity) => `<path d="M${at(degrees, from)}L${at(degrees, to)}" stroke-width="${width}" opacity="${opacity}"/>`;
+  let marks = "";
+  if (style === "ticksAndDimple" || style === "ticks") {
+    for (let i = 0; i < 72; i++) marks += line(i * 5 + 20, i % 6 ? 40 : 37, 44, i % 6 ? .5 : .9, i % 6 ? .45 : .8);
+  }
+  if (style === "spokes") {
+    for (let i = 0; i < 12; i++) marks += line(i * 30 + 20, 26, 42, 1.8, .4);
+  }
+  if (style === "ticksAndDimple" || style === "dimple") {
+    const [x, y] = at(110, 33).split(" ");
+    marks += `<circle cx="${x}" cy="${y}" r="6" class="ringDimple"/>`;
+  }
+  if (style === "trail") {
+    for (let i = 0; i < 10; i++) marks += `<path d="M${at(70 + i * 9, 33)}L${at(79 + i * 9, 33)}" class="ringTrail" stroke-width="5" opacity="${((10 - i) / 10 * .85).toFixed(2)}"/>`;
+  }
+  return `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="47" class="ringDisc"/><g class="ringMarks">${marks}</g><circle cx="50" cy="50" r="22" class="ringKnob"/></svg>`;
+}
+
+$("#ringStyles").innerHTML = RING_STYLES.map(([style, name]) =>
+  `<button type="button" role="radio" class="ringStyle" data-style="${style}" aria-checked="false">${ringPreview(style)}<span>${name}</span></button>`).join("");
+
+function setRingStyle(style) {
+  ringStyle = RING_STYLES.some(([name]) => name === style) ? style : DEFAULT_RING_STYLE;
+  for (const button of $$("#ringStyles button")) button.setAttribute("aria-checked", String(button.dataset.style === ringStyle));
+}
+setRingStyle(ringStyle);
+$("#ringStyles").addEventListener("click", (e) => {
+  const button = e.target.closest("button");
+  if (!button) return;
+  setRingStyle(button.dataset.style);
+  saveTheme();
+});
 
 function setThemeSlider(id, value) {
   const input = $("#" + id);
@@ -154,6 +201,7 @@ $("#themePresets").addEventListener("click", (e) => {
 $("#themeReset").addEventListener("click", () => {
   setThemeSlider("themeSize", 100);
   setThemeSlider("themeTransparency", 0);
+  setRingStyle(DEFAULT_RING_STYLE);
   saveTheme();
 });
 

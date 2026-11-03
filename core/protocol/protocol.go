@@ -77,7 +77,18 @@ type ThemeValues struct {
 	Size float64 `json:"size"`
 	// Transparency is 0 for solid.
 	Transparency float64 `json:"transparency"`
+	// RingStyle is what the ring shows as a drag turns it: a RingStyle value.
+	RingStyle string `json:"ringStyle"`
 }
+
+// The ring styles.
+const (
+	RingStyleTicksAndDimple = "ticksAndDimple"
+	RingStyleTicks          = "ticks"
+	RingStyleDimple         = "dimple"
+	RingStyleSpokes         = "spokes"
+	RingStyleTrail          = "trail"
+)
 
 // Phases of a State message.
 const (

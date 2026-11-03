@@ -63,6 +63,30 @@ func TestThemeIsKeptInRange(t *testing.T) {
 	}
 }
 
+func TestRingStyleIsKnownOrTheDefault(t *testing.T) {
+	cases := map[string]string{
+		`{}`:                               "ticksAndDimple",
+		`{"theme":{"size":2}}`:             "ticksAndDimple",
+		`{"theme":{"ringStyle":"spokes"}}`: "spokes",
+		`{"theme":{"ringStyle":"trail"}}`:  "trail",
+		`{"theme":{"ringStyle":"ticks"}}`:  "ticks",
+		`{"theme":{"ringStyle":"dimple"}}`: "dimple",
+		`{"theme":{"ringStyle":"neon"}}`:   "ticksAndDimple",
+		`{"theme":{"ringStyle":3}}`:        "ticksAndDimple",
+	}
+	for file, want := range cases {
+		path := filepath.Join(t.TempDir(), "config.json")
+		os.WriteFile(path, []byte(file), 0o600)
+		got, err := Load(path)
+		if err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		if got.Theme.RingStyle != want {
+			t.Errorf("%s: ring style %q, want %q", file, got.Theme.RingStyle, want)
+		}
+	}
+}
+
 func TestLoadLenient(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	os.WriteFile(path, []byte(`{"port":"nope","commandThreshold":7,"jev":{"apiKey":"k"},"voice":{"engines":[{"name":"a","apiKey":"x"},{"name":"b","apiKey":"y"}],"engine":"b"}}`), 0o600)

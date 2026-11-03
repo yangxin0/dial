@@ -75,6 +75,9 @@ final class Runner {
             if only?.contains("icons") ?? true {
                 try testIconsHide()
             }
+            if only?.contains("styles") ?? true {
+                try testRingStyles()
+            }
             if only?.contains("theme") ?? true {
                 try testTheme()
             }
@@ -466,6 +469,10 @@ final class Runner {
     private func testIconsHide() throws {
         print("--- icons")
         let name = "icons"
+        // The other styles draw on the circle this reads.
+        try beginRingStyles()
+        defer { restoreConfig() }
+        try setRingStyle(.ticks)
         let ring = try settledRing()
         guard let shape = dialShape(), let pid = frontPID() else { throw Invalid(reason: "the dial's window went away") }
         let idle = try iconProfile(shape, "icons-idle")
@@ -487,14 +494,107 @@ final class Runner {
         record(name, "a press keeps the icons", changed(held) <= 12 ? .pass : .fail, "\(changed(held)) of 360 spots changed")
 
         var during: [Bool] = []
-        _ = try drag(pid, name, from: 90, to: -90, midway: {
-            during = try self.iconProfile(shape, "icons-during")
+        _ = try drag(pid, name, from: 90, to: -90, duringStep: { step in
+            if step == 45 { during = try self.iconProfile(shape, "icons-during") }
         }, waitAfter: 0)
         let after = try iconProfile(shape, "icons-after")
         let left = during.filter { $0 }.count
         record(name, "a drag hides the icons", !during.isEmpty && left <= 3 ? .pass : .fail, "\(left) of 360 spots still look like icons, from \(shown)")
         record(name, "letting go brings them back", changed(after) <= 12 ? .pass : .fail, "\(changed(after)) of 360 spots differ from before the drag, right after the release")
         usleep(700_000)
+    }
+
+    // MARK: - Ring styles
+
+    private var styleConfigPath = ""
+    private var styleConfig: [String: Any] = [:]
+
+    /// Takes a copy of the real config, which `restoreConfig` puts back.
+    private func beginRingStyles() throws {
+        let dir = ProcessInfo.processInfo.environment["DIAL_CONFIG_DIR"] ?? (NSHomeDirectory() + "/.config/dial")
+        styleConfigPath = dir + "/config.json"
+        guard let original = try? Data(contentsOf: URL(fileURLWithPath: styleConfigPath)),
+              let config = (try? JSONSerialization.jsonObject(with: original)) as? [String: Any] else {
+            throw Invalid(reason: "can't read the config at \(styleConfigPath)")
+        }
+        configToRestore = (styleConfigPath, original)
+        styleConfig = config
+    }
+
+    /// Sets the style in the real config, and gives the core time to pass it on.
+    private func setRingStyle(_ style: RingStyle) throws {
+        var theme = styleConfig["theme"] as? [String: Any] ?? ["size": 1, "transparency": 0]
+        theme["ringStyle"] = style.rawValue
+        styleConfig["theme"] = theme
+        try JSONSerialization.data(withJSONObject: styleConfig, options: .prettyPrinted).write(to: URL(fileURLWithPath: styleConfigPath))
+        usleep(900_000)
+    }
+
+    /// How many spots on the band between the button and the rim differ between
+    /// two screenshots of the dial.
+    private func bandDifference(_ a: Data, _ b: Data, _ shape: DialShape) throws -> Int {
+        guard let one = NSBitmapImageRep(data: a), let two = NSBitmapImageRep(data: b), one.pixelsWide == two.pixelsWide else {
+            throw Invalid(reason: "couldn't read a screenshot of the dial")
+        }
+        let pixels = CGFloat(one.pixelsWide) / shape.width * shape.scale
+        let center = CGPoint(x: CGFloat(one.pixelsWide) / 2, y: (DialMetrics.topMargin + DialMetrics.outerRadius) * pixels)
+        var differing = 0
+        for radius in stride(from: DialMetrics.buttonRadius + 3, through: DialMetrics.outerRadius - 3, by: 1) {
+            for degrees in stride(from: 0.0, to: 360, by: 1) {
+                let r = degrees * .pi / 180
+                let x = Int(center.x + radius * pixels * cos(r)), y = Int(center.y - radius * pixels * sin(r))
+                guard let p = one.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), let q = two.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if max(abs(p.redComponent - q.redComponent), abs(p.greenComponent - q.greenComponent), abs(p.blueComponent - q.blueComponent)) > 0.1 {
+                    differing += 1
+                }
+            }
+        }
+        return differing
+    }
+
+    /// How many spots just inside the rim differ from the bare ring, leaving out
+    /// the active icon at the top, whose corners reach that far.
+    private func marksAtRest(_ data: Data, _ shape: DialShape) throws -> Int {
+        guard let image = NSBitmapImageRep(data: data), image.pixelsWide > 0 else {
+            throw Invalid(reason: "couldn't read a screenshot of the dial")
+        }
+        let pixels = CGFloat(image.pixelsWide) / shape.width * shape.scale
+        let center = CGPoint(x: CGFloat(image.pixelsWide) / 2, y: (DialMetrics.topMargin + DialMetrics.outerRadius) * pixels)
+        let radius = (DialMetrics.outerRadius - 5) * pixels
+        let spots = (0..<360).filter { abs($0 - 90) > 25 }.map { degrees -> [CGFloat] in
+            let r = Double(degrees) * .pi / 180
+            let c = image.colorAt(x: Int(center.x + radius * cos(r)), y: Int(center.y - radius * sin(r)))?.usingColorSpace(.sRGB)
+            return [c?.redComponent ?? 0, c?.greenComponent ?? 0, c?.blueComponent ?? 0]
+        }
+        let surface = (0..<3).map { channel in spots.map { $0[channel] }.sorted()[spots.count / 2] }
+        return spots.filter { spot in (0..<3).contains { abs(spot[$0] - surface[$0]) > 0.05 } }.count
+    }
+
+    /// Each style must show the ring moving: two looks during a drag differ on
+    /// the band. The looks are 62° apart: not a whole number of ticks or spokes,
+    /// or the marks would land on themselves and look still. And each must be
+    /// gone once the drag is over.
+    private func testRingStyles() throws {
+        print("--- styles")
+        let name = "styles"
+        try beginRingStyles()
+        defer { restoreConfig() }
+        _ = try settledRing()
+        guard let shape = dialShape(), let pid = frontPID() else { throw Invalid(reason: "the dial's window went away") }
+        for style in RingStyle.allCases {
+            try setRingStyle(style)
+            var first: Data?, second: Data?
+            _ = try drag(pid, name, from: 90, to: -90, duringStep: { step in
+                if step == 30 { first = try self.screenshot(shape.window, "style-\(style.rawValue)-1") }
+                if step == 61 { second = try self.screenshot(shape.window, "style-\(style.rawValue)-2") }
+            })
+            guard let first, let second else { throw Invalid(reason: "a drag ended before its screenshots") }
+            let moved = try bandDifference(first, second, shape)
+            record(name, "\(style.rawValue) shows it turning", moved >= 20 ? .pass : .fail, "\(moved) spots on the band changed between two looks 62° apart")
+            // At rest the ring shows its icons and nothing else.
+            let rest = try marksAtRest(try screenshot(shape.window, "style-\(style.rawValue)-rest"), shape)
+            record(name, "\(style.rawValue) hides at rest", rest <= 2 ? .pass : .fail, "\(rest) spots just inside the rim look like marks")
+        }
     }
 
     /// Changes the theme in the real config, checks the running dial follows
@@ -688,7 +788,7 @@ final class Runner {
     /// a hand's is. An earlier version sent absolute positions, each of which
     /// put the pointer back on the path, and passed the build that was pulling
     /// the pointer to the middle of the screen.
-    private func drag(_ pid: pid_t, _ name: String, from: Double, to: Double, midway: (() throws -> Void)? = nil,
+    private func drag(_ pid: pid_t, _ name: String, from: Double, to: Double, duringStep: ((Int) throws -> Void)? = nil,
                       waitAfter: useconds_t = 700_000) throws -> CGFloat {
         try requireFront(pid, name)
         guard let shape = dialShape() else { throw Invalid(reason: "the dial's window went away") }
@@ -726,7 +826,7 @@ final class Runner {
             event?.post(tap: .cghidEventTap)
             // A hand stops now and then. Nothing puts the pointer back during this.
             usleep(i % 15 == 0 ? 90_000 : 12_000)
-            if i == steps / 2 { try midway?() }
+            try duringStep?(i)
         }
         usleep(150_000)
         let (worst, wheels, others) = watch.stop()

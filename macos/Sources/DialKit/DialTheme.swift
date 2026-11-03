@@ -1,7 +1,8 @@
 import CoreGraphics
 import Foundation
 
-/// How the dial looks: its size and how see-through it is. The ring's maths
+/// How the dial looks: its size, how see-through it is, and what the ring shows
+/// as it turns. The ring's maths
 /// don't change with size: the view scales its drawing and its events alike.
 public struct DialTheme: Equatable, Codable {
     public static let minSize: CGFloat = 0.5
@@ -12,20 +13,23 @@ public struct DialTheme: Equatable, Codable {
     public var size: CGFloat
     /// 0 is solid. Never fully see-through, so it can't be lost on screen.
     public var transparency: CGFloat
+    public var ringStyle: RingStyle
 
-    public init(size: CGFloat = 1, transparency: CGFloat = 0) {
+    public init(size: CGFloat = 1, transparency: CGFloat = 0, ringStyle: RingStyle = .ticksAndDimple) {
         self.size = min(max(size, Self.minSize), Self.maxSize)
         self.transparency = min(max(transparency, 0), Self.maxTransparency)
+        self.ringStyle = ringStyle
     }
 
     enum CodingKeys: String, CodingKey {
-        case size, transparency
+        case size, transparency, ringStyle
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(size: (try? c.decode(CGFloat.self, forKey: .size)) ?? 1,
-                  transparency: (try? c.decode(CGFloat.self, forKey: .transparency)) ?? 0)
+                  transparency: (try? c.decode(CGFloat.self, forKey: .transparency)) ?? 0,
+                  ringStyle: (try? c.decode(RingStyle.self, forKey: .ringStyle)) ?? .ticksAndDimple)
     }
 
     public var alpha: CGFloat { 1 - transparency }

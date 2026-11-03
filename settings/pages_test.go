@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yangxin0/dial/core/config"
+	"github.com/yangxin0/dial/core/protocol"
 )
 
 // A temporary config, with both keys set and dial-core's port pointing nowhere,
@@ -26,7 +27,7 @@ func testHost(t *testing.T) *host {
 		"voice":      object{"engines": []object{{"name": "test", "type": "volcengine", "apiKey": "k"}}, "engine": "test"},
 		"jev":        object{"apiKey": "k"},
 		"port":       1,
-		"theme":      object{"size": 1.5, "transparency": 0.25},
+		"theme":      object{"size": 1.5, "transparency": 0.25, "ringStyle": "spokes"},
 		"unknownKey": "keep me",
 	})
 	if err != nil {
@@ -103,11 +104,21 @@ func TestPagesRunInARealBrowser(t *testing.T) {
 		{"the permissions row was updated", `Open Dial: it reports its Accessibility and Microphone grants here\.`},
 		{"the theme's size from the config", `id="themeSizeValue">150%<`},
 		{"the theme's transparency from the config", `id="themeTransparencyValue">25%<`},
+		{"the ring style from the config", `data-style="spokes" aria-checked="true"`},
 	}
 	for _, check := range checks {
 		if !regexp.MustCompile(check.pattern).MatchString(page) {
 			t.Errorf("%s: the page's script didn't get there (looked for %s)", check.name, check.pattern)
 		}
+	}
+	// Every style the core knows can be chosen, and just one is.
+	for _, style := range []string{protocol.RingStyleTicksAndDimple, protocol.RingStyleTicks, protocol.RingStyleDimple, protocol.RingStyleSpokes, protocol.RingStyleTrail} {
+		if !strings.Contains(page, `data-style="`+style+`"`) {
+			t.Errorf("the Theme tab has no ring style %s", style)
+		}
+	}
+	if n := strings.Count(page, `aria-checked="true"`); n != 1 {
+		t.Errorf("%d ring styles are chosen", n)
 	}
 	// With dial-core's port pointing nowhere, this one must stay unticked.
 	if regexp.MustCompile(`id="chk-core"[^>]*class="ok"|class="ok"[^>]*id="chk-core"`).MatchString(page) {
@@ -140,14 +151,14 @@ func TestConfigSetKeepsWhatItDoesntKnow(t *testing.T) {
 func TestThemeCanBeSaved(t *testing.T) {
 	h := testHost(t)
 	ctx := context.Background()
-	if _, err := h.call(ctx, "config.set", object{"key": "theme", "value": object{"size": 2.5, "transparency": 0.5}}); err != nil {
+	if _, err := h.call(ctx, "config.set", object{"key": "theme", "value": object{"size": 2.5, "transparency": 0.5, "ringStyle": "trail"}}); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := config.Load(h.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Theme.Size != 2.5 || cfg.Theme.Transparency != 0.5 {
+	if cfg.Theme.Size != 2.5 || cfg.Theme.Transparency != 0.5 || cfg.Theme.RingStyle != "trail" {
 		t.Errorf("the core would read %+v", cfg.Theme)
 	}
 }

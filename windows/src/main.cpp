@@ -581,6 +581,13 @@ struct Dial {
     // active app at the top.
     float rotation = 0, rotationTarget = 0;
     bool spinning = false;
+    // What the ring shows as a drag turns it: a name from the config. The marks
+    // stay where a drag leaves them, as a wheel does; the icons keep their places.
+    std::string ringStyle = "ticksAndDimple";
+    float marksTurn = 0;
+    struct TrailPoint { float angle; ULONGLONG time; };
+    std::vector<TrailPoint> trail;
+    static constexpr ULONGLONG kTrailLife = 500;
     int wheelX = 0, wheelY = 0;
     bool dark = false;
 
@@ -637,6 +644,7 @@ struct Dial {
             else if (!ready["jev"]) showHint(L"Ready. Without a Jev key, a few plain rules tell commands from text.");
             else showHint(L"Ready.");
         } else if (type == "theme") {
+            ringStyle = m["theme"]["ringStyle"].str("ticksAndDimple");
             applyTheme((float)m["theme"]["size"].num(1), (float)m["theme"]["transparency"].num(0));
         } else if (type == "ring") {
             ring.clear();
@@ -886,7 +894,69 @@ struct Dial {
 
     // A drag let go: the ring springs back home, the active app at the
     // top.
-    void settle() { retarget(); }
+    void settle() {
+        trail.clear();
+        KillTimer(hwnd, 6);
+        retarget();
+    }
+
+    // Forgets what has faded out, keeping one older point so that the piece
+    // joining it to the rest fades out rather than vanishes.
+    void pruneTrail() {
+        ULONGLONG now = GetTickCount64();
+        size_t keep = 0;
+        for (size_t i = 0; i < trail.size(); i++) if (now - trail[i].time >= kTrailLife) keep = i;
+        trail.erase(trail.begin(), trail.begin() + keep);
+        if (trail.size() == 1 && now - trail[0].time >= kTrailLife) trail.clear();
+        if (trail.empty()) KillTimer(hwnd, 6);
+        redraw();
+    }
+
+    // How the ring shows it's turning, only during a drag: at rest it has its
+    // icons, and marks beside them are clutter.
+    void drawMarks(Graphics& g, POINT c) {
+        if (!(dragging && dragZone == 1)) return;
+        BYTE ink = dark ? 255 : 0;
+        float slot = (kOuter + kButton) / 2;
+        auto at = [&](float angle, float r) { return PointF(c.x + r * cosf(angle), c.y - r * sinf(angle)); };
+        auto stroke = [&](PointF from, PointF to, float width, Color color) {
+            Pen pen(color, width);
+            pen.SetStartCap(LineCapRound);
+            pen.SetEndCap(LineCapRound);
+            g.DrawLine(&pen, from, to);
+        };
+        if (ringStyle == "ticksAndDimple" || ringStyle == "ticks") {
+            // One tick per scroll line.
+            for (int i = 0; i < 72; i++) {
+                bool major = i % 6 == 0;
+                float angle = marksTurn + (float)i * 2 * (float)M_PI / 72;
+                BYTE alpha = major ? 178 : 102;
+                stroke(at(angle, kOuter - (major ? 13 : 9)), at(angle, kOuter - 4), major ? 1.6f : 1.0f, Color(alpha, ink, ink, ink));
+            }
+        }
+        if (ringStyle == "spokes") {
+            for (int i = 0; i < 12; i++) {
+                float angle = marksTurn + (float)i * 2 * (float)M_PI / 12;
+                stroke(at(angle, kButton + 7), at(angle, kOuter - 7), 3.0f, Color(71, ink, ink, ink));
+            }
+        }
+        if (ringStyle == "ticksAndDimple" || ringStyle == "dimple") {
+            // The app icon's dimple.
+            PointF p = at((float)M_PI / 2 + marksTurn, slot);
+            float r = 11;
+            LinearGradientBrush brush(PointF(p.X, p.Y - r), PointF(p.X, p.Y + r), Color(255, 0xF2, 0x54, 0x1A), Color(255, 0xFF, 0x8A, 0x4D));
+            g.FillEllipse(&brush, p.X - r, p.Y - r, r * 2, r * 2);
+        }
+        if (ringStyle == "trail") {
+            ULONGLONG now = GetTickCount64();
+            for (size_t i = 1; i < trail.size(); i++) {
+                ULONGLONG age = now - trail[i].time;
+                if (age >= kTrailLife) continue;
+                BYTE alpha = (BYTE)(204 * (kTrailLife - age) / kTrailLife);
+                stroke(at(trail[i - 1].angle, slot), at(trail[i].angle, slot), 9.0f, Color(alpha, 0xF2, 0x54, 0x1A));
+            }
+        }
+    }
 
     int zoneAt(POINT p) const {
         POINT c = center();
@@ -954,6 +1024,7 @@ struct Dial {
         bool overRing = hoverZone == 1;
         Pen outline(overRing ? Color(128, accent.GetR(), accent.GetG(), accent.GetB()) : edge, overRing ? 2.0f : 1.0f);
         g.DrawEllipse(&outline, c.x - kOuter, c.y - kOuter, kOuter * 2, kOuter * 2);
+        drawMarks(g, c);
 
         // The slots, hidden while a drag has the ring.
         int count = (int)std::min<size_t>(ring.size(), kMaxSlots);
@@ -1118,6 +1189,7 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             else if (wparam == 3) { KillTimer(hwnd, 3); d->hint.clear(); d->redraw(); }
             else if (wparam == 4) { d->sendApps(); }
             else if (wparam == 5) { d->spinStep(); }
+            else if (wparam == 6) { d->pruneTrail(); }
             return 0;
         case WM_MOUSEMOVE:
             if (d && !d->tracking) {
@@ -1151,10 +1223,16 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
                     if (delta > (float)M_PI) delta -= 2 * (float)M_PI;
                     if (delta < -(float)M_PI) delta += 2 * (float)M_PI;
                     d->lastAngle = now;
+                    d->marksTurn += delta;
+                    if (d->ringStyle == "trail") {
+                        d->trail.push_back({now, GetTickCount64()});
+                        SetTimer(hwnd, 6, 33, nullptr);
+                    }
                     // Every 15° of turn scrolls the app in front: clockwise down.
                     d->turn += delta;
                     while (d->turn >= Dial::kTurnStep) { d->turn -= Dial::kTurnStep; input::scroll(3); }
                     while (d->turn <= -Dial::kTurnStep) { d->turn += Dial::kTurnStep; input::scroll(-3); }
+                    d->redraw();
                 }
             }
             return 0;
