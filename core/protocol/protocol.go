@@ -50,6 +50,8 @@ type DialStatus struct {
 	Platform      string `json:"platform,omitempty"`
 	Accessibility bool   `json:"accessibility"`
 	Microphone    bool   `json:"microphone"`
+	// Ring is the app ids last sent to the dial, in slot order.
+	Ring []string `json:"ring,omitempty"`
 }
 
 // Message types, core → dial.

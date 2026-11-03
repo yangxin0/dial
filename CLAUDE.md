@@ -18,10 +18,12 @@ similar marker or trailer.
   API: the Go build embeds them without reading them, so a broken script builds
   fine. After changing `settings/assets`, also open the real app: `make run`
   rebuilds both apps.
-- `make test-scroll` drags the real ring of a fresh build over real apps,
-  and takes over the pointer for about a minute, so CI can't run it. Run it
-  before saying a change to the pointer, the ring or scrolling works. Exit 2
-  means the run was invalid and proved nothing.
+- `make test-scroll` drags the real ring of a fresh build over real apps and
+  clicks its icons, and takes over the pointer for a couple of minutes, so CI
+  can't run it. Run it before saying a change to the pointer, the ring or
+  scrolling works. Exit 2 means the run was invalid and proved nothing.
+- Inside ScrollTest, ask `lsappinfo` which app is in front. `NSWorkspace` goes
+  stale on its background thread, and once made a working switch look refused.
 - A test proves nothing until it has failed on broken code. When changing
   `macos/Sources/ScrollTest`, run it against an old broken build (b36839c or
   f1fcf8d, built in a `git worktree`, which must fail) and with
@@ -34,6 +36,9 @@ similar marker or trailer.
   `core/protocol/protocol.go`: a change to a message changes both sides.
 - `core/` must stay free of platform UI code so it builds for both
   platforms and stays unit-testable.
+- Switching apps on macOS (`macos/Sources/Dial/Apps.swift`) opens the running
+  app, which also sends the reopen event a Dock click sends. `activate` alone
+  leaves an app with no window in front with nothing on screen.
 - Scrolling the app in front on macOS (`macos/Sources/Dial/Input.swift`):
   post the wheel to the app's process with the window number in field 51
   and a window-local position from the private `CGEventSetWindowLocation`.

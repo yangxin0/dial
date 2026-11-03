@@ -60,6 +60,8 @@ static const int kDefaultPort = 47831;
 static const int kWidth = 200, kHeight = 240;
 static const float kOuter = 86, kInner = 50, kButton = 40;
 static const int kMaxSlots = 8;
+static const float kIconHit = 22;    // how near an icon's centre a click counts as on it
+static const float kClickSlop = 6;   // screen pixels a press may move and still be a click
 static const int kChunkBytes = 6400;  // 200 ms of 16 kHz 16-bit mono
 
 enum { WM_CORE_LINE = WM_APP + 1, WM_CORE_STATE = WM_APP + 2, WM_AUDIO_CHUNK = WM_APP + 3 };
@@ -838,6 +840,15 @@ struct Dial {
         return (int)roundf(turn * n) % n;
     }
 
+    // The icon a point is on; -1 on the ring between icons, and off it.
+    int iconAt(POINT p) const {
+        int slot = slotAt(p);
+        if (slot < 0) return -1;
+        PointF at = slotCenter(slot, slotCount());
+        float dx = (float)p.x - at.X, dy = (float)p.y - at.Y;
+        return sqrtf(dx * dx + dy * dy) <= kIconHit ? slot : -1;
+    }
+
     bool inButton(POINT p) const {
         POINT c = center();
         float dx = (float)(p.x - c.x), dy = (float)(p.y - c.y);
@@ -1121,7 +1132,8 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (d && d->pressed) {
                 POINT p = d->logical(lparam);
                 if (!d->dragging) {
-                    if (abs(p.x - d->dragStart.x) <= 4 && abs(p.y - d->dragStart.y) <= 4) return 0;
+                    float dx = (float)(p.x - d->dragStart.x), dy = (float)(p.y - d->dragStart.y);
+                    if (sqrtf(dx * dx + dy * dy) * d->scale <= kClickSlop) return 0;
                     d->dragging = true;
                     if (d->dragZone != 1) {
                         ReleaseCapture();
@@ -1166,15 +1178,16 @@ static LRESULT CALLBACK windowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
             if (d && d->pressed) {
                 ReleaseCapture();
                 d->pressed = false;
-                POINT p = d->logical(lparam);
                 if (d->dragging) {
                     if (d->dragZone == 1) { d->dragging = false; d->settle(); }
                     return 0;
                 }
-                if (d->inButton(p)) d->toggleListening();
+                // A click: it means what was pressed, wherever a shaky hand let go.
+                if (d->dragZone == 2) d->toggleListening();
                 else {
-                    int slot = d->slotAt(p);
-                    if (slot >= 0 && slot < (int)d->ring.size()) d->pick(d->ring[slot]);
+                    int icon = d->iconAt(d->dragStart);
+                    if (icon >= 0 && icon < (int)d->ring.size()) d->pick(d->ring[icon]);
+                    else if (d->dragZone == 1) d->retarget();  // the press stopped the ring's easing
                 }
             }
             return 0;

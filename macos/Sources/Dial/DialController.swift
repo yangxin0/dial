@@ -153,6 +153,7 @@ final class DialController {
 
     /// Switches to an app from the ring (a turn, or a click on its slot).
     func pick(_ id: String) {
+        Log.write("pick \(id)")
         apps.activate(id: id)
         panel.view.activeID = id
         learned(id)

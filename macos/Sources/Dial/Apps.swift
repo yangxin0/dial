@@ -117,12 +117,14 @@ final class AppWatcher {
         }
     }
 
-    /// Brings the app to the front; opens it when it is not running.
+    /// Brings the app up as a click on its Dock icon does: to the front and
+    /// showing a window, launching it if it isn't running.
+    ///
+    /// Activating alone isn't enough: an app with its windows closed becomes
+    /// the app in front with nothing on screen, which looks like the click did
+    /// nothing. Opening a running app also sends it the reopen event the Dock
+    /// sends, and it brings up a window. An app showing one opens no other.
     func activate(id: String) {
-        if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == id }) {
-            app.activate(options: [.activateIgnoringOtherApps])
-            return
-        }
         open(id: id)
     }
 
@@ -137,7 +139,9 @@ final class AppWatcher {
         guard let url else { return }
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+            if let error { Log.write("open \(id) failed: \(error.localizedDescription)") }
+        }
     }
 
     /// The records the core gets.

@@ -92,6 +92,16 @@ func (s *Server) setDial(sess *session, platform string, ready map[string]bool) 
 	}
 }
 
+// noteRing keeps the ring the dial was last sent, so a check can say which
+// app sits where.
+func (s *Server) noteRing(sess *session, order []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dialSession == sess {
+		s.dial.Ring = order
+	}
+}
+
 func (s *Server) dialGone(sess *session) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -243,6 +253,7 @@ func (sess *session) sendRing() {
 	if order == nil {
 		order = []string{}
 	}
+	sess.s.noteRing(sess, order)
 	sess.send(protocol.Message{Type: protocol.Ring, Ring: order})
 }
 

@@ -235,7 +235,7 @@ final class DialView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = mouseDownAt else { return }
         if !dragging {
-            guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > 4 else { return }
+            guard hypot(event.locationInWindow.x - start.x, event.locationInWindow.y - start.y) > DialMetrics.clickSlop else { return }
             dragging = true
             if dragZone != .ring {
                 window?.performDrag(with: event)
@@ -264,11 +264,16 @@ final class DialView: NSView {
             }
             return
         }
-        let point = convert(event.locationInWindow, from: nil)
-        if geometry.zone(at: point) == .button {
+        // A click: it means what was pressed, wherever a shaky hand let go.
+        guard let start = mouseDownAt else { return }
+        let point = convert(start, from: nil)
+        if dragZone == .button {
             controller?.toggleListening()
-        } else if let index = geometry.slot(at: point, count: slotCount, rotation: rotation), index < ring.count {
+        } else if let index = geometry.icon(at: point, count: slotCount, rotation: rotation), index < ring.count {
             controller?.pick(ring[index].id)
+        } else if dragZone == .ring {
+            // The press stopped the ring where it was: let it finish easing.
+            retarget()
         }
     }
 

@@ -10,6 +10,12 @@ public enum DialMetrics {
     public static let innerRadius: CGFloat = 50
     public static let buttonRadius: CGFloat = 40
     public static let maxSlots = 8
+    /// How near an icon's centre a click counts as on it: the largest icon's
+    /// corners and a little more. Eight icons still leave a gap between them.
+    public static let iconHitRadius: CGFloat = 22
+    /// How far a press may move, in screen points, and still be a click: a
+    /// hand's isn't still, least of all on a trackpad.
+    public static let clickSlop: CGFloat = 6
     /// Slots sit in the middle of the band the eye sees: between the
     /// button's edge and the rim.
     public static var slotRadius: CGFloat { (outerRadius + buttonRadius) / 2 }
@@ -64,6 +70,13 @@ public struct RingGeometry {
         var turns = (CGFloat.pi / 2 + rotation - angle(of: point)) / (2 * .pi)  // clockwise from the top
         turns -= turns.rounded(.down)
         return Int((turns * CGFloat(count)).rounded()) % count
+    }
+
+    /// The icon a point is on; nil on the ring between icons, and off it.
+    public func icon(at point: CGPoint, count: Int, rotation: CGFloat) -> Int? {
+        guard let index = slot(at: point, count: count, rotation: rotation) else { return nil }
+        let at = slotCenter(index, of: count, rotation: rotation)
+        return hypot(point.x - at.x, point.y - at.y) <= DialMetrics.iconHitRadius ? index : nil
     }
 
     /// The rotation nearest `current` that puts a slot at the top.

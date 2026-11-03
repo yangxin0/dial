@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -226,6 +227,33 @@ func TestDialStatusReachesSettings(t *testing.T) {
 	settings.send(protocol.Message{Type: protocol.Hello, Platform: "settings"})
 	if hello = settings.expect(protocol.Hello); hello.Dial.Connected {
 		t.Fatalf("dial still connected: %+v", hello.Dial)
+	}
+}
+
+func TestTheDialsRingIsInItsStatus(t *testing.T) {
+	f := setupFixture(t, nil)
+	dial := f.client
+	dial.send(protocol.Message{Type: protocol.Hello, Platform: "macos"})
+	dial.expect(protocol.Hello)
+	dial.send(protocol.Message{Type: protocol.Apps, Apps: []protocol.App{{ID: "a", Name: "A", Running: true}, {ID: "b", Name: "B", Running: true}}})
+	sent := dial.expect(protocol.Ring).Ring
+
+	conn, err := net.Dial("tcp", dial.conn.RemoteAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	check := client{conn: conn, r: bufio.NewReader(conn), t: t}
+	check.send(protocol.Message{Type: protocol.Hello, Platform: "scrolltest"})
+	if got := check.expect(protocol.Hello).Dial.Ring; len(sent) != 2 || !slices.Equal(got, sent) {
+		t.Fatalf("status ring %v, the dial was sent %v", got, sent)
+	}
+	// Another client's apps are not the dial's ring.
+	check.send(protocol.Message{Type: protocol.Apps, Apps: []protocol.App{{ID: "z", Name: "Z", Running: true}}})
+	check.expect(protocol.Ring)
+	check.send(protocol.Message{Type: protocol.Hello, Platform: "scrolltest"})
+	if got := check.expect(protocol.Hello).Dial.Ring; !slices.Equal(got, sent) {
+		t.Fatalf("another client changed the dial's ring to %v", got)
 	}
 }
 

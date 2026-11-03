@@ -1,7 +1,8 @@
 // make test-scroll: drags the real ring of the running dial over real apps,
 // and checks what happened: the app scrolled the right way, the pointer
-// stayed on the drag's path, and the app stayed in front. It takes over the
-// pointer for about a minute. Don't touch the mouse while it runs.
+// stayed on the drag's path, and the app stayed in front. Then it clicks the
+// ring's icons, and each app must come up showing a window. It takes over the
+// pointer for a couple of minutes. Don't touch the mouse while it runs.
 //
 //   ScrollTest                     every target
 //   ScrollTest --only chrome,native

@@ -53,7 +53,7 @@ final class Runner {
         }
         print("ScrollTest: taking over the pointer. Don't touch the mouse until it's done.")
         let pointer = currentPointer()
-        let previous = NSWorkspace.shared.frontmostApplication
+        let previous = frontPID().flatMap { NSRunningApplication(processIdentifier: $0) }
         defer {
             CGWarpMouseCursorPosition(pointer)
             previous?.activate(options: [])
@@ -68,6 +68,9 @@ final class Runner {
                     continue
                 }
                 try test(target)
+            }
+            if only?.contains("clicks") ?? true {
+                try testClicks()
             }
             if only?.contains("theme") ?? true {
                 try testTheme()
@@ -204,8 +207,27 @@ final class Runner {
         }
     }
 
-    private func frontPID() -> pid_t? { NSWorkspace.shared.frontmostApplication?.processIdentifier }
-    private func frontName() -> String { NSWorkspace.shared.frontmostApplication?.localizedName ?? "nothing" }
+    private func lsappinfo(_ arguments: [String]) -> String {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/lsappinfo")
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return "" }
+        process.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The process in front, asked of the system each time. NSWorkspace's
+    /// answer on this thread goes stale: it once said an app stayed in front
+    /// for six seconds after another had come up, which read as macOS refusing
+    /// the switch.
+    private func frontPID() -> pid_t? {
+        let info = lsappinfo(["info", "-only", "pid", lsappinfo(["front"])])
+        guard let label = info.range(of: "pid = ") else { return nil }
+        return pid_t(info[label.upperBound...].prefix { $0.isNumber })
+    }
+    private func frontName() -> String { frontPID().flatMap { NSRunningApplication(processIdentifier: $0)?.localizedName } ?? "nothing" }
 
     /// A test is only valid with the target really in front: an earlier test
     /// wasn't, and nothing noticed.
@@ -216,6 +238,195 @@ final class Runner {
         }
         guard frontPID() == pid else {
             throw Invalid(reason: "\(name) isn't in front: \(frontName()) is, so this would measure the wrong app")
+        }
+    }
+
+    // MARK: - Clicks on the ring
+
+    private func frontID() -> String? {
+        frontPID().flatMap { NSRunningApplication(processIdentifier: $0)?.bundleIdentifier }
+    }
+
+    /// The ring once it has come to rest with the app in front on it, and so
+    /// at the top: a pick reorders the ring and turns it.
+    private func settledRing() throws -> (ids: [String], front: String) {
+        var last: [String] = []
+        var stable = 0
+        let deadline = Date().addingTimeInterval(8)
+        while Date() < deadline {
+            usleep(300_000)
+            guard let ring = coreStatus()?["ring"] as? [String], let front = frontID(), ring.contains(front) else {
+                stable = 0
+                continue
+            }
+            stable = ring == last ? stable + 1 : 0
+            last = ring
+            if stable >= 3 { return (Array(ring.prefix(DialMetrics.maxSlots)), front) }
+        }
+        throw Invalid(reason: "the ring didn't settle with the app in front on it (\(frontID() ?? "nothing") is in front)")
+    }
+
+    /// Where an icon is on screen, or `offset` degrees clockwise from it.
+    private func iconPoint(_ id: String, in ring: (ids: [String], front: String), _ shape: DialShape, offset: Double = 0) -> CGPoint {
+        let index = ring.ids.firstIndex(of: id) ?? 0, top = ring.ids.firstIndex(of: ring.front) ?? 0
+        let degrees = (90 - (Double(index - top) * 360 / Double(ring.ids.count) + offset)) * .pi / 180
+        let radius = DialMetrics.slotRadius * shape.scale
+        return CGPoint(x: shape.center.x + radius * cos(degrees), y: shape.center.y - radius * sin(degrees))
+    }
+
+    /// Windows of the app a person can see on this desktop.
+    private func visibleWindows(_ pid: pid_t) -> Int {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return list.filter { window in
+            guard window[kCGWindowOwnerPID as String] as? pid_t == pid, window[kCGWindowLayer as String] as? Int == 0,
+                  (window[kCGWindowAlpha as String] as? CGFloat ?? 1) > 0,
+                  let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return false }
+            return bounds.width >= 100 && bounds.height >= 100
+        }.count
+    }
+
+    private let dialLog = NSHomeDirectory() + "/Library/Logs/Dial/dial.log"
+    private func logSize() -> Int { FileManager.default.contents(atPath: dialLog)?.count ?? 0 }
+    /// What the dial says it picked since the log was this long.
+    private func picks(since mark: Int) -> [String] {
+        usleep(150_000)
+        guard let data = FileManager.default.contents(atPath: dialLog), data.count >= mark else { return [] }
+        return String(decoding: data[mark...], as: UTF8.self).split(separator: "\n").compactMap { line in
+            guard let range = line.range(of: " pick ") else { return nil }
+            return String(line[range.upperBound...])
+        }
+    }
+
+    /// A press and a release, the pointer moving `drift` points between them
+    /// as a hand's does.
+    private func click(at point: CGPoint, drift: Int = 0) throws {
+        post(.mouseMoved, at: point)
+        usleep(150_000)
+        let here = currentPointer()
+        guard hypot(here.x - point.x, here.y - point.y) < 1 else {
+            throw Invalid(reason: "the pointer is at \(Int(here.x)),\(Int(here.y)), not the \(Int(point.x)),\(Int(point.y)) this test put it at: the mouse moved during a click. Run it again without touching the mouse")
+        }
+        post(.leftMouseDown, at: point)
+        usleep(60_000)
+        var at = point
+        for _ in 0..<drift {
+            at.x += 1
+            post(.leftMouseDragged, at: at)
+            usleep(10_000)
+        }
+        usleep(40_000)
+        post(.leftMouseUp, at: at)
+    }
+
+    /// Clicks every icon on the real ring: its app must come to the front and
+    /// show a window, as a click on its Dock icon does. An app with its windows
+    /// closed once came "to the front" with nothing on screen, which reads as
+    /// the click doing nothing. Then the other half of a press: only a release
+    /// on an icon switches, and moving turns the ring instead.
+    private func testClicks() throws {
+        print("--- clicks")
+        let name = "clicks"
+        guard let shape = dialShape() else { throw Invalid(reason: "the dial's window went away") }
+        var ring = try settledRing()
+        guard ring.ids.count >= 3 else {
+            record(name, "(whole target)", .skip, "fewer than three apps on the ring")
+            return
+        }
+        func label(_ id: String) -> String {
+            NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.localizedName ?? id
+        }
+
+        var visited = Set<String>()
+        while let id = ring.ids.first(where: { $0 != ring.front && !visited.contains($0) }) {
+            visited.insert(id)
+            guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: id).first?.processIdentifier else { continue }
+            let before = visibleWindows(pid), mark = logSize()
+            try click(at: iconPoint(id, in: ring, shape))
+            let shown = waitFor(seconds: 6) { self.frontID() == id && self.visibleWindows(pid) > 0 }
+            let picked = picks(since: mark)
+            let start = before > 0 ? "had \(before) window(s)" : "had no window"
+            if picked != [id] {
+                record(name, "click \(label(id))", .fail, "\(start), and the dial picked \(picked)")
+            } else if !shown {
+                record(name, "click \(label(id))", .fail, "\(start); \(frontName()) is in front, and \(label(id)) shows \(visibleWindows(pid)) window(s)")
+            } else {
+                usleep(800_000)
+                let after = visibleWindows(pid)
+                if before > 0, after > before {
+                    record(name, "click \(label(id))", .fail, "\(start), and the click opened another")
+                } else {
+                    record(name, "click \(label(id))", .pass, "\(start), in front showing \(after)")
+                }
+            }
+            ring = try settledRing()
+        }
+
+        // Hidden and minimized windows are the same trap as closed ones.
+        for way in ["hidden", "minimized"] {
+            guard let id = ring.ids.first(where: { id in
+                guard id != ring.front, let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first else { return false }
+                return visibleWindows(app.processIdentifier) > 0
+            }), let app = NSRunningApplication.runningApplications(withBundleIdentifier: id).first else {
+                record(name, "click a \(way) app", .skip, "no other app on the ring shows a window")
+                continue
+            }
+            let pid = app.processIdentifier
+            let axApp = AXUIElementCreateApplication(pid)
+            var value: CFTypeRef?
+            AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &value)
+            let windows = value as? [AXUIElement] ?? []
+            if way == "hidden" {
+                app.hide()
+            } else {
+                for window in windows { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
+            }
+            defer {
+                app.unhide()
+                for window in windows { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
+            }
+            guard waitFor(seconds: 4, { self.visibleWindows(pid) == 0 }) else {
+                record(name, "click a \(way) app", .skip, "\(label(id)) wouldn't get out of sight")
+                continue
+            }
+            ring = try settledRing()
+            guard ring.ids.contains(id) else { continue }
+            try click(at: iconPoint(id, in: ring, shape))
+            let shown = waitFor(seconds: 6) { self.frontID() == id && self.visibleWindows(pid) > 0 }
+            record(name, "click a \(way) app", shown ? .pass : .fail, "\(label(id)): \(frontName()) in front, showing \(visibleWindows(pid)) window(s)")
+            app.unhide()
+            for window in windows { AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) }
+            ring = try settledRing()
+        }
+
+        // A hand's click isn't still.
+        if let id = ring.ids.first(where: { $0 != ring.front }) {
+            let mark = logSize()
+            try click(at: iconPoint(id, in: ring, shape), drift: 5)
+            let up = waitFor(seconds: 4) { self.frontID() == id }
+            let picked = picks(since: mark)
+            record(name, "click that wobbles 5 points", up && picked == [id] ? .pass : .fail, "picked \(picked), \(frontName()) in front")
+            ring = try settledRing()
+        }
+
+        // Between two icons there is nothing to click.
+        do {
+            let mark = logSize()
+            try click(at: iconPoint(ring.front, in: ring, shape, offset: 180 / Double(ring.ids.count)))
+            usleep(900_000)
+            let picked = picks(since: mark)
+            record(name, "click between two icons", picked.isEmpty && frontID() == ring.front ? .pass : .fail, "picked \(picked), \(frontName()) in front")
+            ring = try settledRing()
+        }
+
+        // Pressing an icon and moving is a drag, however short.
+        if let id = ring.ids.first(where: { $0 != ring.front }) {
+            let mark = logSize()
+            try click(at: iconPoint(id, in: ring, shape), drift: 12)
+            usleep(900_000)
+            let picked = picks(since: mark)
+            record(name, "press an icon, move 12 points", picked.isEmpty && frontID() == ring.front ? .pass : .fail, "picked \(picked), \(frontName()) in front")
+            ring = try settledRing()
         }
     }
 
