@@ -49,10 +49,10 @@ func main() {
 		Name:      "main",
 		Title:     "Dial Settings",
 		URL:       "/",
-		Width:     720,
-		Height:    600,
-		MinWidth:  600,
-		MinHeight: 460,
+		Width:     780,
+		Height:    640,
+		MinWidth:  660,
+		MinHeight: 480,
 	}
 	if runtime.GOOS == "darwin" {
 		options.Mac = application.MacWindow{TitleBar: application.MacTitleBarHiddenInset}

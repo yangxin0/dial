@@ -62,9 +62,12 @@ On Windows itself, build the dial with CMake and Visual Studio or MinGW (`window
 
 ## Set up
 
-1. Open **Dial Settings**. On **Voice**, paste your Volcengine key (the new console's API key, or the old console's App ID and Access Token) and press **Test**.
-2. On **Jev**, paste a [TypeSafe](https://typesafe.ai) API key and press **Test**. This is optional: the rules decide without it. **Try a sentence** shows what the dial would do with what you type.
-3. Open **Dial**. It sits at the bottom right; drag it anywhere. macOS asks for the **Microphone** on the first recording, and for **Accessibility** at launch (System Settings ▸ Privacy & Security ▸ Accessibility): the keys, scrolling and typing need it.
+Open **Dial Settings**. **Get started** walks you through it, one step at a time, and ticks each step as it's done:
+
+1. **Open the dial.** It sits at the bottom right; drag it anywhere.
+2. **Allow Accessibility and the Microphone** (macOS). macOS asks for both when Dial opens: the keys, scrolling and typing need Accessibility (System Settings ▸ Privacy & Security ▸ Accessibility).
+3. **Add your speech key**: your Volcengine key, from the [new console](https://console.volcengine.com/speech/new/). The **Voice** page also takes the old console's App ID and Access Token.
+4. **Add Jev**, if you like: a [TypeSafe](https://console.typesafe.ai/keys) API key. This is optional, because plain rules decide without it. On the **Commands** page, **Try a sentence** shows what the dial would do with what you type.
 
 If Accessibility shows as allowed in System Settings but Dial still says it isn't: the entry belongs to an earlier build. Without the local signing identity every rebuild is a new app to macOS, so remove Dial from the list with − and add `dist/Dial.app` again with +, and run `make signing-identity` once so it doesn't recur. Settings' checklist shows what Dial itself reports, so it tells you when the grant has taken.
 

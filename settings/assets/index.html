@@ -7,119 +7,198 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header class="top">
-  <nav class="seg" id="nav" aria-label="Pages">
-    <button data-view="setup" class="on">Setup</button>
-    <button data-view="voice">Voice</button>
-    <button data-view="jev">Jev</button>
-    <button data-view="dial">Dial</button>
-    <button data-view="theme">Theme</button>
-    <button data-view="about">About</button>
+<svg class="symbols" aria-hidden="true">
+  <symbol id="i-setup" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M5.2 8.2l2 2 3.6-4"/></symbol>
+  <symbol id="i-voice" viewBox="0 0 16 16"><rect x="5.7" y="1.8" width="4.6" height="8" rx="2.3"/><path d="M3.4 7.6a4.6 4.6 0 0 0 9.2 0M8 12.2v2"/></symbol>
+  <symbol id="i-jev" viewBox="0 0 16 16"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/><path d="M5.5 7h5"/></symbol>
+  <symbol id="i-ring" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><circle cx="8" cy="8" r="2.4"/></symbol>
+  <symbol id="i-theme" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 1.8v12.4M8 4.5h4.9M8 8h6.2M8 11.5h4.9"/></symbol>
+  <symbol id="i-about" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.3v4M8 4.8v.1"/></symbol>
+</svg>
+
+<aside class="side">
+  <div class="dragbar"></div>
+  <nav id="nav" aria-label="Pages">
+    <button data-view="setup" class="on" aria-current="page"><svg class="ico"><use href="#i-setup"/></svg><span>Get started</span><span class="badge" id="navProgress" hidden></span></button>
+    <button data-view="voice"><svg class="ico"><use href="#i-voice"/></svg><span>Voice</span><span class="alert" id="navVoice" title="No speech key yet" hidden></span></button>
+    <button data-view="jev"><svg class="ico"><use href="#i-jev"/></svg><span>Commands</span></button>
+    <button data-view="ring"><svg class="ico"><use href="#i-ring"/></svg><span>Ring</span></button>
+    <button data-view="theme"><svg class="ico"><use href="#i-theme"/></svg><span>Theme</span></button>
+    <button data-view="about"><svg class="ico"><use href="#i-about"/></svg><span>About</span></button>
   </nav>
-</header>
+  <div class="saveState" id="saveState" role="status"></div>
+</aside>
 
 <main>
+  <div class="dragbar"></div>
+  <div class="banner" id="problem" role="alert" hidden>
+    <div><b>Your config file has a mistake, so Dial is using its defaults.</b> <span id="problemText"></span></div>
+    <button class="pill" data-open="config">Open the file</button>
+  </div>
+
   <section class="view on" id="setup">
-    <h1>Get the dial ready</h1>
-    <p class="lede">The dial listens when you click it, runs what you say as a command or types it, and turns an app ring with the arrow keys.</p>
-    <ul class="card checklist">
-      <li id="chk-core">
-        <span class="mark"></span>
-        <div class="text"><b>dial-core is running</b><span class="sub">The dial app starts it. Open Dial and this turns green.</span></div>
+    <h1 id="setupTitle">Set up Dial</h1>
+    <p class="lede" id="setupLede">A few steps, and you can talk to your computer.</p>
+    <div class="progress" id="progress" role="progressbar" aria-label="Setup progress" aria-valuemin="0"><div id="progressBar"></div></div>
+
+    <ol class="steps">
+      <li id="step-dial" class="step">
+        <button class="stepHead" type="button"><span class="mark"></span><span class="stepTitle">Open the dial</span><span class="stepNote"></span></button>
+        <div class="stepBody">
+          <p>The dial floats on your screen and never takes the focus from the app you're working in.</p>
+          <div class="actions"><button class="primary" type="button" data-open="dial">Open Dial</button><span class="result" id="openDialResult"></span></div>
+        </div>
       </li>
-      <li id="chk-voice">
-        <span class="mark"></span>
-        <div class="text"><b>Speech engine set up</b><span class="sub">豆包流式语音识别, with your Volcengine key.</span></div>
-        <button class="pill" data-go="voice">Set up</button>
+
+      <li id="step-permissions" class="step mac-only">
+        <button class="stepHead" type="button"><span class="mark"></span><span class="stepTitle">Allow Accessibility and the Microphone</span><span class="stepNote"></span></button>
+        <div class="stepBody">
+          <p>macOS asks for both when Dial opens. Turn Dial on in each list, and each one ticks itself here.</p>
+          <div id="perm-accessibility" class="perm"><span class="mark"></span><div class="text"><b>Accessibility</b><span class="sub">So the dial can scroll, press keys and type for you.</span></div><button class="pill" type="button" data-open="accessibility">Open System Settings</button></div>
+          <div id="perm-microphone" class="perm"><span class="mark"></span><div class="text"><b>Microphone</b><span class="sub">So the dial can hear you, only while it's listening.</span></div><button class="pill" type="button" data-open="microphone">Open System Settings</button></div>
+          <p class="help" id="permStale" hidden>Is Dial already on in the Accessibility list? That entry can belong to an older copy. Remove it with the − button, then add Dial again.</p>
+        </div>
       </li>
-      <li id="chk-jev">
-        <span class="mark"></span>
-        <div class="text"><b>Jev set up</b><span class="sub">Tells a command from dictation. Optional: a few plain rules decide without it.</span></div>
-        <button class="pill" data-go="jev">Set up</button>
+
+      <li id="step-voice" class="step">
+        <button class="stepHead" type="button"><span class="mark"></span><span class="stepTitle">Add your speech key</span><span class="stepNote"></span></button>
+        <div class="stepBody">
+          <p>豆包 (Volcengine) turns what you say into text. Create an API key in its console, then paste it here.</p>
+          <div class="keyRow">
+            <input id="quickVoiceKey" type="password" placeholder="Paste your API key" aria-label="Speech API key" spellcheck="false" autocomplete="off">
+            <button class="pill show" type="button">Show</button>
+            <button class="primary" type="button" id="quickVoiceTest">Test</button>
+          </div>
+          <div class="result" id="quickVoiceResult"></div>
+          <div class="links"><button class="link" type="button" data-open="volcengine">Open the Volcengine console</button><button class="link" type="button" data-go="voice">Use an App ID and token instead</button></div>
+        </div>
       </li>
-      <li id="chk-permissions" class="mac-only">
-        <span class="mark"></span>
-        <div class="text"><b>Permissions</b><span class="sub" id="permissions-sub">Dial needs Accessibility (keys, scrolling, typing) and the Microphone. macOS asks on first use.</span></div>
-        <button class="pill" data-open="accessibility">Accessibility</button>
-        <button class="pill" data-open="microphone">Microphone</button>
+
+      <li id="step-jev" class="step optional">
+        <button class="stepHead" type="button"><span class="mark"></span><span class="stepTitle">Add Jev</span><span class="tag">Optional</span><span class="stepNote"></span></button>
+        <div class="stepBody">
+          <p>Jev tells a command from dictation and understands more ways of saying things. Without it, a few plain rules in English and Chinese decide.</p>
+          <div class="keyRow">
+            <input id="quickJevKey" type="password" placeholder="Paste your TypeSafe API key" aria-label="Jev API key" spellcheck="false" autocomplete="off">
+            <button class="pill show" type="button">Show</button>
+            <button class="primary" type="button" id="quickJevTest">Test</button>
+          </div>
+          <div class="result" id="quickJevResult"></div>
+          <div class="links"><button class="link" type="button" data-open="typesafe">Get a key from the TypeSafe console</button></div>
+        </div>
       </li>
-    </ul>
-    <div class="card tips">
-      <p><b>Click the centre</b> to listen, click again to stop. <b>Hover</b> the dial and use <b>← →</b> for apps, <b>↑ ↓</b> to scroll, <b>Space</b> to listen, <b>Esc</b> to cancel.</p>
-      <p><b>Say</b> “switch to Safari”, “open Slack”, “scroll down”, “go to the top”, “close the window” — or anything else to type it.</p>
+    </ol>
+
+    <h2>Using the dial</h2>
+    <div class="card usage">
+      <div class="usageDial" id="usageDial" aria-hidden="true"></div>
+      <ol class="usageList">
+        <li><span class="pin">1</span><div><b>The centre</b><span class="sub">Click to listen. Click again, or pause, to stop. Drag it to move the dial.</span></div></li>
+        <li><span class="pin">2</span><div><b>An app's icon</b><span class="sub">Click to bring that app to the front.</span></div></li>
+        <li><span class="pin">3</span><div><b>The ring</b><span class="sub">Drag round to scroll the app in front. Clockwise scrolls down.</span></div></li>
+      </ol>
+    </div>
+    <div class="card say">
+      <div class="keys"><b>With the pointer over the dial</b>
+        <span><kbd>←</kbd><kbd>→</kbd> switch apps</span><span><kbd>↑</kbd><kbd>↓</kbd> scroll</span><span><kbd>Space</kbd> listen</span><span><kbd>Esc</kbd> cancel</span></div>
+      <div class="phrases"><b>Try saying</b>
+        <span class="phrase">switch to Safari</span><span class="phrase">open Slack</span><span class="phrase">scroll down</span><span class="phrase">go to the top</span><span class="phrase">close the window</span>
+        <span class="sub">Anything else is typed into the app in front.</span></div>
     </div>
   </section>
 
   <section class="view" id="voice">
     <h1>Voice</h1>
-    <p class="lede">The dial streams your voice to 豆包流式语音识别 (Volcengine). Paste the API key from the new console, or the App ID and Access Token from the old one.</p>
+    <p class="lede">豆包流式语音识别 (Volcengine) turns your voice into text. Your voice is sent to Volcengine only while the dial is listening.</p>
     <div class="card form" id="engine">
-      <label class="row"><span class="label">Name</span><input data-field="name" type="text" spellcheck="false" autocomplete="off"></label>
-      <label class="row"><span class="label">API key</span>
-        <span class="field"><input data-field="apiKey" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
-      <label class="row"><span class="label">App ID</span><input data-field="appId" type="text" spellcheck="false" autocomplete="off"></label>
-      <label class="row"><span class="label">Access token</span>
-        <span class="field"><input data-field="accessToken" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
-      <label class="row"><span class="label">Resource</span><input data-field="resourceId" type="text" placeholder="volc.seedasr.sauc.duration" spellcheck="false" autocomplete="off"></label>
+      <div class="row"><span class="label" id="credLabel">Sign in with</span>
+        <div class="seg" id="credMode" role="radiogroup" aria-labelledby="credLabel">
+          <button type="button" role="radio" data-cred="key" aria-checked="true">API key</button>
+          <button type="button" role="radio" data-cred="token" aria-checked="false">App ID and token</button>
+        </div></div>
+      <div data-show-cred="key">
+        <label class="row"><span class="label">API key</span>
+          <span class="field"><input data-field="apiKey" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
+        <p class="help">From the new console. <button class="link" type="button" data-open="volcengine">Open the Volcengine console</button></p>
+      </div>
+      <div data-show-cred="token" hidden>
+        <label class="row"><span class="label">App ID</span><input data-field="appId" type="text" spellcheck="false" autocomplete="off"></label>
+        <label class="row"><span class="label">Access token</span>
+          <span class="field"><input data-field="accessToken" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
+        <p class="help">From the old console. <button class="link" type="button" data-open="volcengineOld">Open the old console</button></p>
+      </div>
       <div class="row"><span class="label"></span>
-        <div class="field"><button class="primary" id="voiceTest">Test</button><span class="result" id="voiceResult"></span></div></div>
+        <div class="field"><button class="primary" type="button" id="voiceTest">Test</button><span class="result" id="voiceResult"></span></div></div>
+      <details class="advanced"><summary>Advanced</summary>
+        <label class="row"><span class="label">Name</span><input data-field="name" type="text" spellcheck="false" autocomplete="off"></label>
+        <label class="row"><span class="label">Resource</span><input data-field="resourceId" type="text" placeholder="volc.seedasr.sauc.duration" spellcheck="false" autocomplete="off"></label>
+      </details>
     </div>
-    <h2>Hotwords</h2>
-    <p class="lede">Words the engine should favor, one per line: names it keeps mishearing. The open apps' names are sent along automatically.</p>
+    <h2>Words it mishears</h2>
     <div class="card form">
-      <textarea id="hotwords" rows="5" spellcheck="false"></textarea>
+      <textarea id="hotwords" rows="4" spellcheck="false" aria-label="Words it mishears" placeholder="One per line: names, products, jargon"></textarea>
+      <p class="help flush">The speech engine favors these. Your open apps' names are sent along automatically.</p>
     </div>
   </section>
 
   <section class="view" id="jev">
-    <h1>Jev</h1>
-    <p class="lede">Jev (TypeSafe's System One) reads what you said and answers three questions at once: command or dictation, which action, which app. Without a key, a few plain rules in English and Chinese decide instead.</p>
+    <h1>Commands</h1>
+    <p class="lede">When you stop talking, the dial decides: run a command, or type your words. Jev (from TypeSafe) makes that call. Without a key, a few plain rules in English and Chinese decide instead.</p>
     <div class="card form" id="jevForm">
-      <label class="row"><span class="label">API key</span>
+      <label class="row"><span class="label">Jev API key</span>
         <span class="field"><input data-field="apiKey" type="password" spellcheck="false" autocomplete="off"><button type="button" class="pill show">Show</button></span></label>
-      <label class="row"><span class="label">Endpoint</span><input data-field="baseURL" type="url" placeholder="https://api.typesafe.ai/v1" spellcheck="false" autocomplete="off"></label>
-      <label class="row"><span class="label">Model</span><input data-field="model" type="text" placeholder="jev-latest" spellcheck="false" autocomplete="off"></label>
+      <p class="help"><button class="link" type="button" data-open="typesafe">Get a key from the TypeSafe console</button></p>
       <div class="row"><span class="label"></span>
-        <div class="field"><button class="primary" id="jevTest">Test</button><span class="result" id="jevResult"></span></div></div>
+        <div class="field"><button class="primary" type="button" id="jevTest">Test</button><span class="result" id="jevResult"></span></div></div>
+      <details class="advanced"><summary>Advanced</summary>
+        <label class="row"><span class="label">Endpoint</span><input data-field="baseURL" type="url" placeholder="https://api.typesafe.ai/v1" spellcheck="false" autocomplete="off"></label>
+        <label class="row"><span class="label">Model</span><input data-field="model" type="text" placeholder="jev-latest" spellcheck="false" autocomplete="off"></label>
+      </details>
     </div>
+
     <h2>Try a sentence</h2>
-    <p class="lede">What the dial would do with it, against a sample app list (Finder, Safari, Slack, Visual Studio Code, Terminal).</p>
     <div class="card form">
-      <div class="row"><span class="label">Say</span>
-        <span class="field"><input id="tryText" type="text" placeholder="switch to safari" spellcheck="false" autocomplete="off"><button class="pill" id="tryButton">Try</button></span></div>
-      <pre class="code" id="tryResult"></pre>
+      <div class="keyRow">
+        <input id="tryText" type="text" placeholder="Type what you'd say" aria-label="A sentence to try" spellcheck="false" autocomplete="off">
+        <button class="primary" type="button" id="tryButton">Try</button>
+      </div>
+      <div class="chips" id="tryChips">
+        <button class="phrase" type="button">switch to safari</button><button class="phrase" type="button">scroll down</button><button class="phrase" type="button">close the window</button><button class="phrase" type="button">see you at three tomorrow</button>
+      </div>
+      <div class="verdict" id="tryResult" aria-live="polite" hidden><b id="tryWhat"></b><span class="sub" id="tryWhy"></span></div>
+      <p class="help flush">Tried against a sample list of apps: Finder, Safari, Slack, Visual Studio Code and Terminal.</p>
+    </div>
+
+    <h2>How sure Jev must be</h2>
+    <div class="card form">
+      <label class="row"><span class="label">To run a command</span>
+        <span class="field"><span class="end">Acts more</span><input id="commandThreshold" type="range" min="0.3" max="0.95" step="0.05"><span class="end">Types more</span><span class="value" id="commandThresholdValue"></span></span></label>
+      <p class="help">Below this, the dial types your words instead of running a command.</p>
+      <label class="row"><span class="label">To pick an app</span>
+        <span class="field"><span class="end">Trusts Jev</span><input id="appThreshold" type="range" min="0.2" max="0.95" step="0.05"><span class="end">Checks names</span><span class="value" id="appThresholdValue"></span></span></label>
+      <p class="help">Below this, the dial matches the app's name itself.</p>
     </div>
   </section>
 
-  <section class="view" id="dial">
-    <h1>Dial</h1>
-    <h2>Deciding</h2>
+  <section class="view" id="ring">
+    <h1>Ring</h1>
+    <p class="lede">The ring shows your running apps, the ones you pick most first. It learns from every pick you make, on the dial or by voice.</p>
     <div class="card form">
-      <label class="row"><span class="label">Command threshold</span>
-        <span class="field"><input id="commandThreshold" type="range" min="0.3" max="0.95" step="0.05"><span class="value" id="commandThresholdValue"></span></span></label>
-      <p class="help">How sure Jev must be that you gave a command before the dial runs one instead of typing your words. Higher types more, lower acts more.</p>
-      <label class="row"><span class="label">App threshold</span>
-        <span class="field"><input id="appThreshold" type="range" min="0.2" max="0.95" step="0.05"><span class="value" id="appThresholdValue"></span></span></label>
-      <p class="help">How sure Jev must be of the app you named. Below it, the dial matches the name itself.</p>
-    </div>
-    <h2>Ring</h2>
-    <div class="card form">
-      <label class="row"><span class="label">Slots</span>
+      <label class="row"><span class="label">Apps on the ring</span>
         <span class="field"><input id="ringSize" type="range" min="3" max="8" step="1"><span class="value" id="ringSizeValue"></span></span></label>
-      <label class="row"><span class="label">Memory</span>
+      <label class="row"><span class="label">Picks fade over</span>
         <span class="field"><input id="halfLife" type="range" min="1" max="60" step="1"><span class="value" id="halfLifeValue"></span></span></label>
-      <p class="help">Each pick counts one; a count halves every this many days, so an app you stopped using drifts off the ring.</p>
+      <p class="help" id="halfLifeHelp"></p>
     </div>
-    <h2>Learned</h2>
-    <div class="card">
-      <table class="learned" id="learned"><tbody></tbody></table>
-      <div class="add"><button class="pill" id="ringReset">Forget all</button></div>
-    </div>
+    <div class="headRow"><h2>What it has learned</h2>
+      <div class="confirm" id="forget"><button class="pill" type="button" id="ringReset">Forget all</button><button class="pill" type="button" id="ringResetCancel" hidden>Cancel</button></div></div>
+    <div class="card"><ul class="learned" id="learned"></ul>
+      <p class="help flush" id="learnedHelp">The number is how many of an app's picks still count.</p></div>
   </section>
 
   <section class="view" id="theme">
     <h1>Theme</h1>
-    <p class="lede">How the dial looks on your screen. It changes as you move the sliders, so keep it in view while you try them.</p>
+    <p class="lede">How the dial looks. It changes as you go, so keep it in view while you try these.</p>
     <div class="card form">
       <label class="row"><span class="label">Size</span>
         <span class="field"><input id="themeSize" type="range" min="50" max="300" step="5"><span class="value" id="themeSizeValue"></span></span></label>
@@ -130,24 +209,25 @@
           <button type="button" class="pill" data-size="150">Large</button>
           <button type="button" class="pill" data-size="250">Extra large</button>
         </div></div>
-      <p class="help">Make it big to tap it on a small screen, such as when you see this Mac on your phone. It always fits on screen.</p>
+      <p class="help">Make it big to tap it on a small screen, such as when you see this computer on your phone. It always fits on screen.</p>
       <label class="row"><span class="label">Transparency</span>
         <span class="field"><input id="themeTransparency" type="range" min="0" max="80" step="5"><span class="value" id="themeTransparencyValue"></span></span></label>
       <p class="help">How much shows through the dial. You can still click and turn it.</p>
-      <div class="row ringRow"><span class="label" id="ringStyleLabel">Ring style</span>
-        <div class="field ringStyles" id="ringStyles" role="radiogroup" aria-labelledby="ringStyleLabel"></div></div>
-      <p class="help">What the ring shows as you drag it round. Drag the dial's ring to try each one.</p>
-      <div class="row"><span class="label"></span>
-        <div class="field"><button type="button" class="pill" id="themeReset">Reset</button></div></div>
     </div>
+    <h2 id="ringStyleLabel">Ring style</h2>
+    <div class="card form">
+      <div class="ringStyles" id="ringStyles" role="radiogroup" aria-labelledby="ringStyleLabel"></div>
+      <p class="help flush">What the ring shows while you drag it. Drag the dial's ring to try each one.</p>
+    </div>
+    <button type="button" class="pill" id="themeReset">Reset all to defaults</button>
   </section>
 
   <section class="view" id="about">
-    <h1>Dial</h1>
-    <p class="lede">Version <span id="version"></span>. A virtual Surface Dial: voice in, commands or text out, an app ring under the arrow keys.</p>
-    <div class="card tips">
-      <p><b>Config file</b> <span id="configPath" class="mono"></span> <button class="pill" data-open="config">Open</button></p>
-      <p><b>Source</b> <button class="pill" data-open="repository">GitHub</button></p>
+    <div class="aboutHead"><img src="icon.png" alt="" width="64" height="64">
+      <div><h1>Dial</h1><p class="lede">Version <span id="version"></span>. A virtual Surface Dial: talk to run commands or type, click to switch apps, turn to scroll.</p></div></div>
+    <div class="card rows">
+      <div class="infoRow"><div class="text"><b>Config file</b><span id="configPath" class="mono"></span></div><button class="pill" type="button" data-open="config">Open</button></div>
+      <div class="infoRow"><div class="text"><b>Source code</b><span class="sub">github.com/yangxin0/dial</span></div><button class="pill" type="button" data-open="repository">Open on GitHub</button></div>
     </div>
   </section>
 </main>

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -26,7 +27,14 @@ import (
 // The pages talk to the app over a small JSON API served next to them:
 // `await dial(op, args)` in app.js is a POST to /api/<op>.
 
-const repository = "https://github.com/yangxin0/dial"
+const (
+	repository = "https://github.com/yangxin0/dial"
+	// Where the speech keys come from: an API key from the new console, an App
+	// ID and token from the old one.
+	volcengineConsole    = "https://console.volcengine.com/speech/new/"
+	volcengineOldConsole = "https://console.volcengine.com/speech/app"
+	typesafeKeys         = "https://console.typesafe.ai/keys"
+)
 
 type object = map[string]any
 
@@ -77,7 +85,10 @@ func (h *host) call(ctx context.Context, op string, args object) (any, error) {
 		if !editableKeys[key] {
 			return nil, errors.New("unknown key " + key)
 		}
-		return object{"ok": h.set(key, args["value"]) == nil}, nil
+		if err := h.set(key, args["value"]); err != nil {
+			return object{"ok": false, "error": err.Error()}, nil
+		}
+		return object{"ok": true}, nil
 	case "voice.test":
 		m, _ := args["engine"].(map[string]any)
 		var e asr.Engine
@@ -125,6 +136,14 @@ func (h *host) call(ctx context.Context, op string, args object) (any, error) {
 	case "open":
 		var target string
 		switch args["what"] {
+		case "dial":
+			return object{"ok": openDial() == nil}, nil
+		case "volcengine":
+			target = volcengineConsole
+		case "volcengineOld":
+			target = volcengineOldConsole
+		case "typesafe":
+			target = typesafeKeys
 		case "config":
 			config.Ensure(h.path)
 			target = h.path
@@ -151,6 +170,38 @@ func open(target string) error {
 	default:
 		return exec.Command("xdg-open", target).Run()
 	}
+}
+
+// dialBeside is the dial next to this app, as a build or an install puts them,
+// or "" if it isn't there.
+func dialBeside(executable, goos string) string {
+	var path string
+	switch goos {
+	case "darwin":
+		// …/Dial Settings.app/Contents/MacOS/Dial Settings
+		path = filepath.Join(filepath.Dir(executable), "..", "..", "..", "Dial.app")
+	case "windows":
+		path = filepath.Join(filepath.Dir(executable), "dial.exe")
+	default:
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
+func openDial() error {
+	executable, err := os.Executable()
+	if err == nil {
+		if path := dialBeside(executable, runtime.GOOS); path != "" {
+			return open(path)
+		}
+	}
+	if runtime.GOOS == "darwin" {
+		return exec.Command("open", "-b", "com.yangxin.dial").Run()
+	}
+	return errors.New("dial not found")
 }
 
 // raw is the file as it is, a map, so unknown keys survive an edit.
